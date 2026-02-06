@@ -113,8 +113,6 @@ For this implementation, we support Ethereum (chainId: 1). The design allows fut
 }
 ```
 
-
-
 #### Why In-Memory Cache vs Redis?
 
 | In-Memory | Redis |

@@ -5,18 +5,20 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { HealthModule } from './health';
 import { GasPriceModule } from './gas-price';
+import { EthModule } from './eth/eth.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: `.env.${process.env.NODE_ENV ?? 'development'}`,
+      envFilePath: `.env.${process.env.NODE_ENV ?? 'development'}.local`,
       validationSchema: Joi.object({
         PORT: Joi.number().default(3000),
       }),
     }),
     HealthModule,
     GasPriceModule,
+    EthModule,
   ],
   controllers: [AppController],
   providers: [AppService],

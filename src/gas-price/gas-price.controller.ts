@@ -9,6 +9,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { GasPriceService } from './gas-price.service';
+import { GasPriceResponseDto } from './dto';
 
 const SUPPORTED_CHAINS: Set<number> = new Set([1]); // Only Ethereum mainnet (chainId: 1) for now
 
@@ -29,7 +30,7 @@ export class GasPriceController {
       }),
     )
     chainId: number,
-  ): null {
+  ): GasPriceResponseDto {
     if (!SUPPORTED_CHAINS.has(chainId)) {
       throw new HttpException(
         {
@@ -39,9 +40,7 @@ export class GasPriceController {
         HttpStatus.UNPROCESSABLE_ENTITY,
       );
     }
-    // TODO: call gas price service
-    // TODO: implement gas price service
 
-    return null;
+    return this.gasPriceService.getGasPrice();
   }
 }
