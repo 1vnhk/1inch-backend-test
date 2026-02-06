@@ -321,8 +321,6 @@ Using on-chain view functions like `getAmountsOut()` from the UniswapV2 is laten
 UniswapV2 uses the [constant product formula](https://docs.uniswap.org/contracts/v2/concepts/protocol-overview/glossary#constant-product-formula): `x * y = k`
 
 **The Formula** (with 0.3% fee):
-```
-
 ### UniswapV2 Math: The "Input with Fee" Logic
 
 The core of UniswapV2 is the [Constant Product Formula](https://docs.uniswap.org/contracts/v2/concepts/protocol-overview/glossary#constant-product-formula).
