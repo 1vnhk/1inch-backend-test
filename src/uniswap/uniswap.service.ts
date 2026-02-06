@@ -105,6 +105,11 @@ export class UniswapService implements OnModuleDestroy {
    */
   private async fetchAndSubscribe(pairAddress: string): Promise<ReservesCache> {
     const provider = this.ethService.getProvider();
+
+    if (!provider) {
+      throw new Error('WebSocket provider not available');
+    }
+
     const pairContract = new ethers.Contract(pairAddress, PAIR_ABI, provider);
 
     // Fetch current reserves (ethers v5 dynamic contract - type assertion required)

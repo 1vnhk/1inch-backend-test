@@ -107,10 +107,25 @@ export class UniswapController {
         );
       }
 
+      // Handle provider not ready
+      if (errorMessage.includes('provider not available')) {
+        throw new HttpException(
+          {
+            statusCode: HttpStatus.SERVICE_UNAVAILABLE,
+            message: 'Service is starting up, please try again',
+          },
+          HttpStatus.SERVICE_UNAVAILABLE,
+        );
+      }
+
+      // Log unexpected errors for debugging
+      console.error('Unexpected error in getReturnAmount:', error);
+
       throw new HttpException(
         {
           statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
           message: 'Failed to calculate return amount',
+          error: errorMessage,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
