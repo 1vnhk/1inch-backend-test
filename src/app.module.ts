@@ -4,6 +4,7 @@ import Joi from 'joi';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { HealthModule } from './health';
+import { GasModule } from './gas';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { HealthModule } from './health';
       }),
     }),
     HealthModule,
+    GasModule,
   ],
   controllers: [AppController],
   providers: [AppService],
