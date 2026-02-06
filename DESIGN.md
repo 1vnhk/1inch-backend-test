@@ -273,21 +273,21 @@ For the purposes of this test, a single-instance deployment with in-memory cachi
 
 ---
 
-### 2. UniswapV2 Module
+## 2. UniswapV2 Module
 
 **Purpose**: Calculate swap output amounts off-chain using UniswapV2 reserve data.
 
-#### Assumptions
+### Assumptions & Scope
 
-> **Assumption**: For this implementation, we assume the UniswapV2 pair (liquidity pool) exists for any given token pair. This simplifies error handling and is reasonable for well-known token pairs (e.g., WETH/USDC, WETH/DAI).
+> **Assumption**: For this implementation, we assume the UniswapV2 pair exists for the requested token pair.
 >
-> **Production consideration**: In a production system, we would handle the case where `getReserves()` fails by returning a `404 PAIR_NOT_FOUND` error.
+> **Production Consideration**: In a production system, we would support multi-hop routing (e.g. `TokenA` → `...Intermediate Tokens` → `TokenB`) when a direct pair does not exist. 
 
-#### The Challenge
+### The Challenge
 
-Using on-chain view functions like `getAmountsOut()` from the UniswapV2 is expensive and also prohibited by the task itself.
+Using on-chain view functions like `getAmountsOut()` from the UniswapV2 is latency-expensive and is explicitly prohibited by the task.
 
-#### Solution: Off-Chain Constant Product Calculation
+### Solution Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -301,7 +301,7 @@ Using on-chain view functions like `getAmountsOut()` from the UniswapV2 is expen
 │            │                                                                │
 │   Step 2: Get Reserves (single RPC call)                                    │
 │   ┌────────▼────────┐                                                       │
-│   │ Pair.getReserves│──────▶ Fresh fetch (validates pair exists)           │
+│   │ Pair.getReserves│──────▶ Fresh fetch (fails if pair does not exist)           │
 │   │ ()              │                                                       │
 │   └────────┬────────┘                                                       │
 │            │                                                                │
@@ -318,85 +318,114 @@ Using on-chain view functions like `getAmountsOut()` from the UniswapV2 is expen
 
 #### UniswapV2 Math: Constant Product Formula
 
-UniswapV2 uses the [constant product formula](https://docs.uniswap.org/contracts/v2/concepts/protocol-overview/glossary#constant-product-formula): `x × y = k`
+UniswapV2 uses the [constant product formula](https://docs.uniswap.org/contracts/v2/concepts/protocol-overview/glossary#constant-product-formula): `x * y = k`
 
-<!-- TODO: figure out why so -->
-<!-- TODO: write a description, so can be easily understood and comprehended (by myself in the first place) -->
 **The Formula** (with 0.3% fee):
 ```
-amountOut = (amountIn × 997 × reserveOut) / (reserveIn × 1000 + amountIn × 997)
+
+### UniswapV2 Math: The "Input with Fee" Logic
+
+The core of UniswapV2 is the [Constant Product Formula](https://docs.uniswap.org/contracts/v2/concepts/protocol-overview/glossary#constant-product-formula).
+
+**The Derivation**:
+
+1. **Invariant**: The product of reserves after the swap must equal (or exceed) the product before:
+```
+(reserveIn + amountInWithFee) * (reserveOut - amountOut) >= k
+
+which is
+
+(reserveIn + amountInWithFee) * (reserveOut − amountOut) >= reserveIn * reserveOut
 ```
 
-Where:
-- `997/1000` represents the 0.3% swap fee (0.997 = 1 - 0.003)
-- `reserveIn` = reserve of the input token in the pair
-- `reserveOut` = reserve of the output token in the pair
+2. **Fee deduction**: Uniswap takes a 0.3% fee. This means for every 1000 units input, only 997 units actually hit the liquidity pool. All calculations are performed with integers to avoid floating-point errors.
+```
+amountInWithFee = (amountIn * 997) / 1000
+```
 
-**Implementation** (using BigInt for precision):
-- Token amounts can be up to 10^77 (uint256 max)
-- JavaScript `Number` loses precision after 2^53
-- BigInt provides arbitrary precision integer arithmetic
+3. **Final Formula (Integer Math)**:
 
-#### Token Ordering in UniswapV2
+To avoid floating point errors, we multiply the numerator and denominator by 1000 to work with integers:
 
-UniswapV2 pairs always [order tokens](https://docs.uniswap.org/contracts/v2/reference/smart-contracts/library#sorttokens) by address (lexicographically):
-- `token0` = address with smaller hex value
-- `token1` = address with larger hex value
+```
+numerator   = amountIn * 997 * reserveOut
+denominator = (reserveIn * 1000) + (amountIn * 997)
+amountOut   = numerator / denominator  // Integer division floors the result
+```
 
-When fetching reserves via `getReserves()`, the returned `(reserve0, reserve1)` correspond to `(token0, token1)`. The implementation must map these to `reserveIn` and `reserveOut` based on which token is being swapped.
+NOTE: the math could be derived from [periphery](https://github.com/Uniswap/v2-periphery/blob/master/contracts/libraries/UniswapV2Library.sol#L43), just performed off-chain.
 
-#### Getting Pair Address: CREATE2 vs getPair()
+**Implementation Note**: Token amounts can reach 10^77 (uint256 max). JavaScript `Number` loses precision after 2^53, so **BigInt** is required for all calculations.
 
-**Initial Approach Considered**: Calling `factory.getPair(tokenA, tokenB)`
+### Deterministic Addressing: The CREATE2 Strategy
 
-After reviewing the [UniswapV2 documentation](https://docs.uniswap.org/contracts/v2/reference/smart-contracts/pair-addresses), a better approach was found: computing the pair address off-chain using [CREATE2](https://docs.uniswap.org/sdk/v2/guides/getting-pair-addresses#create2) withput RPC calls.
+Instead of asking the blockchain *"Where is this pair?"*, we calculate *"Where must this pair be?"* using the [CREATE2](https://eips.ethereum.org/EIPS/eip-1014) opcode standard.
+
+**Initial Approach Considered**: `factory.getPair(tokenA, tokenB)`
+
+After reviewing the [UniswapV2 documentation](https://docs.uniswap.org/contracts/v2/reference/smart-contracts/pair-addresses), a better approach was found.
 
 **Why CREATE2 is superior**:
-| Approach | RPC Calls | Latency | Cacheable |
-|----------|-----------|---------|-----------|
-| `factory.getPair()` | 1 per request | ~100-200ms | Yes, but requires initial fetch |
-| CREATE2 computation | 0 | ~0.01ms | N/A (deterministic) |
 
-**The CREATE2 Formula**:
+| Benefit | Explanation |
+|---------|-------------|
+| **Zero RPC Overhead** | `factory.getPair()` requires a network call (~100-200ms). CREATE2 is a local hash calculation (~0.01ms). |
+| **Security** | Pair addresses are computed locally and cannot differ between RPC providers. |
+| **No Cold Start** | Eliminates the "first request is slow" problem entirely. |
+
+[CREATE2 Formula](https://docs.uniswap.org/contracts/v2/guides/smart-contract-integration/getting-pair-addresses#create2)
+
+**Token Ordering**: UniswapV2 pairs always [order tokens](https://docs.uniswap.org/contracts/v2/reference/smart-contracts/library#sorttokens) lexicographically by address (`token0 < token1`). The implementation must sort tokens before computing the salt.
+
+### Edge Case Handling
+
+| Scenario | HTTP Code | Resolution Logic |
+|----------|-----------|------------------|
+| Zero Liquidity | `422` | If `reserveIn` or `reserveOut` is 0, mathematics break. Return `INSUFFICIENT_LIQUIDITY`. |
+| Identical Tokens | `400` | If `tokenA === tokenB`, swap is impossible. Return `INVALID_REQUEST`. |
+| Zero Amount | `400` | If `amountIn <= 0`, return `INVALID_AMOUNT`. |
+| Pair Not Found | - | Out of scope per assumption. |
+
+### Performance Summary
+
+| Metric | Value |
+|--------|-------|
+| RPC Calls per Request | 1 (`getReserves()` only) |
+| Pair Address Computation | ~0.01ms (local) |
+| Total Latency | ~100-200ms (dominated by RPC) |
+
+Note: Achieving sub-50ms latency requires co-locating the service with a low-latency Ethereum node (e.g. dedicated QuickNode/Alchemy instance in the same region) or using a cached reserve snapshot for slightly stale quotes.
+
+### Future Considerations (Out of Scope)
+
+The following enhancements are not implemented in this MVP but would be valuable in a production system:
+
+**1. Multi-Hop Routing**
+
+Multi-hop routing requires graph search across pools and is out of scope for this MVP.
+
+When a direct pair doesn't exist (e.g., `TokenA/TokenB`), route through an intermediary:
 ```
-pairAddress = keccak256(0xff ++ factoryAddress ++ salt ++ initCodeHash)[12:]
-
-where:
-  salt = keccak256(abi.encodePacked(token0, token1))
-  initCodeHash = 0x96e8ac4277198ff8b6f785478aa9a39f403cb768dd02cbee326c3e7da348845f
+TokenA → ...Intermediary Tokens → TokenB
 ```
 
-> **Note**: The `INIT_CODE_HASH` is the keccak256 hash of the UniswapV2Pair contract creation bytecode. This is constant for all pairs on mainnet.
+This requires:
+- Graph traversal to find optimal path
+- Chaining multiple `getAmountOut()` calculations
+- Comparing routes to find best output
 
-#### Caching Strategy
+**2. Slippage Protection & Price Impact**
 
-| Data | Cache | TTL | Rationale |
-|------|-------|-----|-----------|
-| **Pair addresses** | N/A | - | Computed via CREATE2 (no RPC, no cache needed) |
-| **Reserves** | No | - | Change on every swap; must be fresh for accurate quotes |
-| **Token metadata** | Yes | 24h | Decimals, symbols rarely change |
+The current endpoint returns a point-in-time quote. Enhanced response could include:
 
-> **Note**: With CREATE2, we eliminated the need for pair address caching entirely. The address computation is ~0.01ms and purely deterministic.
+| Field | Description |
+|-------|-------------|
+| `priceImpact` | Percentage price movement caused by this trade size |
+| `minAmountOut` | Suggested minimum with configurable slippage tolerance (e.g., 0.5%) |
 
-#### Performance Considerations
+**3. Multi-DEX Aggregation**
 
-**Comparison with getPair() approach**:
-| Approach | RPC Calls | Cold Start | Warm Cache |
-|----------|-----------|------------|------------|
-| `factory.getPair()` + `getReserves()` | 2 (first), 1 (cached) | ~300-400ms | ~100-200ms |
-| CREATE2 + `getReserves()` | 1 (always) | ~100-200ms | ~100-200ms |
-
-CREATE2 eliminates the "cold start" penalty entirely.
-
-#### Edge Cases
-
-| Case | Handling |
-|------|----------|
-| Same token for input and output | Return `400 INVALID_REQUEST` |
-| Zero amount | Return `400 INVALID_AMOUNT` |
-| Pair exists but has zero liquidity | Return `422 INSUFFICIENT_LIQUIDITY` |
-| Output amount would be 0 (dust trade) | Return calculated 0 (let client decide) |
-| ~~Pair doesn't exist~~ | ~~Return `404 PAIR_NOT_FOUND`~~ (out of scope per assumption) |
+Query reserves from multiple DEXs (Uniswap, Sushiswap, etc.) and return the best rate—similar to what 1inch does in production.
 
 ---
 
