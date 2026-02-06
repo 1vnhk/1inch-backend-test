@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import Joi from 'joi';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { ConfigModule } from '@nestjs/config';
-
-import Joi from 'joi';
+import { HealthModule } from './health';
 
 @Module({
   imports: [
@@ -14,6 +14,7 @@ import Joi from 'joi';
         PORT: Joi.number().default(3000),
       }),
     }),
+    HealthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
