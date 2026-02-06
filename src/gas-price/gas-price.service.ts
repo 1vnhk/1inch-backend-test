@@ -74,6 +74,10 @@ export class GasPriceService {
     return Date.now() - this.cache.updatedAt > STALENESS_THRESHOLD_MS;
   }
 
+  getLastUpdateTimestamp(): number | undefined {
+    return this.cache?.updatedAt;
+  }
+
   private calculateTier(
     baseFee: bigint,
     priorityFeeBase: bigint,

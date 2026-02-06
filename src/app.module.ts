@@ -14,6 +14,7 @@ import { EthModule } from './eth/eth.module';
       envFilePath: `.env.${process.env.NODE_ENV ?? 'development'}.local`,
       validationSchema: Joi.object({
         PORT: Joi.number().default(3000),
+        ETH_NODE_WS: Joi.string().required(),
       }),
     }),
     HealthModule,

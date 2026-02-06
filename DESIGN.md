@@ -84,6 +84,8 @@ wscat -c wss://docs-demo.quiknode.pro/
 3. On each new block event, fetch updated gas price and update cache
 4. API requests read directly from cache (sub-millisecond)
 
+**NOTE**: The first request may work slower than 50ms but all the subsequent requests should be below the specified limit.
+
 #### API Specification
 
 **Endpoint**: `GET /gas-price/:chainId`
