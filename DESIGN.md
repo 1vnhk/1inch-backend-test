@@ -289,6 +289,8 @@ Using on-chain view functions like `getAmountsOut()` from the UniswapV2 is laten
 
 ### Solution Architecture
 
+#### Initial Design (HTTP Pull)
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │              GET /return/:fromToken/:toToken/:amountIn                      │
@@ -301,7 +303,7 @@ Using on-chain view functions like `getAmountsOut()` from the UniswapV2 is laten
 │            │                                                                │
 │   Step 2: Get Reserves (single RPC call)                                    │
 │   ┌────────▼────────┐                                                       │
-│   │ Pair.getReserves│──────▶ Fresh fetch (fails if pair does not exist)           │
+│   │ Pair.getReserves│──────▶ HTTP call (~100-200ms latency)                │
 │   │ ()              │                                                       │
 │   └────────┬────────┘                                                       │
 │            │                                                                │
@@ -315,6 +317,56 @@ Using on-chain view functions like `getAmountsOut()` from the UniswapV2 is laten
 │   Return: { amountOut: "..." }                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+**NOTE**: The initial design used HTTP calls for `getReserves()`. While functional, this approach has ~100-200ms latency per request. A more effective approach was found using [Uniswap V2 Sync events](https://docs.uniswap.org/contracts/v2/reference/smart-contracts/pair#sync).
+
+#### Optimized Design (WebSocket Push with Sync Events)
+
+The initial implementation relied on per-request RPC calls to `getReserves()`. While correct, this introduces ~100–200ms latency per request due to network overhead.
+
+A more efficient approach leverages `Uniswap V2 Sync events`, which are emitted on every reserve update (swap, mint, burn). By subscribing to these events, the service maintains an in-memory, real-time cache of pair reserves.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    Optimized Architecture (Lazy Subscription)               │
+│                                                                             │
+│   First Request for Pair:                                                   │
+│   ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐       │
+│   │ Compute Address │────▶│ Fetch Reserves  │────▶│ Subscribe Sync  │       │
+│   │ (CREATE2)       │     │ (via WebSocket) │     │ (real-time)     │       │
+│   └─────────────────┘     └────────┬────────┘     └────────┬────────┘       │
+│                                    │                       │                │
+│                                    ▼                       ▼                │
+│                           ┌────────────────────────────────────┐            │
+│                           │         In-Memory Cache            │            │
+│                           │   pairAddress → { reserve0, reserve1 }         │
+│                           └────────────────────────────────────┘            │
+│                                           ▲                                 │
+│   Subsequent Requests:                    │                                 │
+│   ┌─────────────────┐              Cache HIT                                │
+│   │ API Request     │─────────────────────┘                                 │
+│   │ (<1ms)          │                                                       │
+│   └─────────────────┘                                                       │
+│                                                                             │
+│   Background:                                                               │
+│   ┌─────────────────┐                                                       │
+│   │ Sync Event      │────▶ Auto-update cache on every swap/mint/burn       │
+│   │ (WebSocket)     │                                                       │
+│   └─────────────────┘                                                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Why This Works**:
+- Correctness: Sync events are emitted on every reserve change, ensuring the cache reflects on-chain state.
+- Low latency: After the initial fetch, all reads are served from memory (no RPC calls per request).
+- Scalability: Lazy subscription ensures only actively requested pairs consume resources.
+- Efficiency: WebSocket subscriptions amortize network cost over time instead of per request.
+
+**Recovery Considerations**
+On process restart or WebSocket reconnection:
+- Existing subscriptions are re-established
+- Reserves are re-fetched once via getReserves() to rehydrate cache
+- Persistent storage (e.g., Redis) can be added later if horizontal scaling or warm restarts are required.
 
 #### UniswapV2 Math: Constant Product Formula
 
@@ -386,13 +438,15 @@ After reviewing the [UniswapV2 documentation](https://docs.uniswap.org/contracts
 
 ### Performance Summary
 
-| Metric | Value |
-|--------|-------|
-| RPC Calls per Request | 1 (`getReserves()` only) |
-| Pair Address Computation | ~0.01ms (local) |
-| Total Latency | ~100-200ms (dominated by RPC) |
+| Metric | Initial (HTTP) | Optimized (WebSocket + Sync) |
+|--------|----------------|------------------------------|
+| First request latency | ~100-200ms | ~50-100ms |
+| Subsequent request latency | ~100-200ms | **<1ms** |
+| RPC calls per request | 1 | 0 (after first) |
+| Pair Address Computation | ~0.01ms | ~0.01ms |
+| Data freshness | On-demand | Real-time |
 
-Note: Achieving sub-50ms latency requires co-locating the service with a low-latency Ethereum node (e.g. dedicated QuickNode/Alchemy instance in the same region) or using a cached reserve snapshot for slightly stale quotes.
+The optimized architecture achieves sub-millisecond latency for subsequent requests by leveraging WebSocket subscriptions to Sync events, eliminating the need for per-request RPC calls.
 
 ### Future Considerations (Out of Scope)
 

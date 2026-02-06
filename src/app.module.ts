@@ -6,6 +6,7 @@ import { AppService } from './app.service';
 import { HealthModule } from './health';
 import { GasPriceModule } from './gas-price';
 import { EthModule } from './eth/eth.module';
+import { UniswapModule } from './uniswap';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { EthModule } from './eth/eth.module';
     HealthModule,
     GasPriceModule,
     EthModule,
+    UniswapModule,
   ],
   controllers: [AppController],
   providers: [AppService],

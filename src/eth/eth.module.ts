@@ -5,5 +5,6 @@ import { EthService } from './eth.service';
 @Module({
   imports: [GasPriceModule],
   providers: [EthService],
+  exports: [EthService],
 })
 export class EthModule {}

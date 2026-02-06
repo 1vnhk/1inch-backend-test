@@ -56,6 +56,14 @@ export class EthService implements OnModuleInit, OnModuleDestroy {
     return this.reconnectAttempts;
   }
 
+  /**
+   * Get the WebSocket provider for creating contract instances.
+   * Used by other services that need real-time blockchain data.
+   */
+  getProvider(): ethers.providers.WebSocketProvider {
+    return this.wsProvider;
+  }
+
   private async fetchAndUpdateGasPrice(
     blockTag: number | 'latest',
     provider: ethers.providers.WebSocketProvider = this.wsProvider,
