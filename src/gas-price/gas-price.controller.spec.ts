@@ -1,20 +1,20 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { HttpException, HttpStatus } from '@nestjs/common';
-import { GasController } from './gas.controller';
-import { GasService } from './gas.service';
+import { GasPriceController } from './gas-price.controller';
+import { GasPriceService } from './gas-price.service';
 
-describe('GasController', () => {
-  let controller: GasController;
-  let gasService: GasService;
+describe('GasPriceController', () => {
+  let controller: GasPriceController;
+  let gasPriceService: GasPriceService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      controllers: [GasController],
-      providers: [GasService],
+      controllers: [GasPriceController],
+      providers: [GasPriceService],
     }).compile();
 
-    controller = module.get<GasController>(GasController);
-    gasService = module.get<GasService>(GasService);
+    controller = module.get<GasPriceController>(GasPriceController);
+    gasPriceService = module.get<GasPriceService>(GasPriceService);
   });
 
   describe('controller setup', () => {
@@ -22,8 +22,8 @@ describe('GasController', () => {
       expect(controller).toBeDefined();
     });
 
-    it('should have gasService injected', () => {
-      expect(gasService).toBeDefined();
+    it('should have gasPriceService injected', () => {
+      expect(gasPriceService).toBeDefined();
     });
   });
 

@@ -8,13 +8,13 @@ import {
   ParseIntPipe,
   BadRequestException,
 } from '@nestjs/common';
-import { GasService } from './gas.service';
+import { GasPriceService } from './gas-price.service';
 
 const SUPPORTED_CHAINS: Set<number> = new Set([1]); // Only Ethereum mainnet (chainId: 1) for now
 
 @Controller('gasPrice')
-export class GasController {
-  constructor(private readonly gasService: GasService) {}
+export class GasPriceController {
+  constructor(private readonly gasPriceService: GasPriceService) {}
 
   @Get(':chainId')
   @Header('Cache-Control', 'public, s-maxage=5, stale-while-revalidate=10')
@@ -39,8 +39,8 @@ export class GasController {
         HttpStatus.UNPROCESSABLE_ENTITY,
       );
     }
-    // TODO: call gas service
-    // TODO: implement gas service
+    // TODO: call gas price service
+    // TODO: implement gas price service
 
     return null;
   }
