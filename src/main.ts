@@ -10,7 +10,17 @@ import compress from '@fastify/compress';
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter(),
+    new FastifyAdapter({
+      keepAliveTimeout: 65000,
+      maxRequestsPerSocket: 0, // Unlimited requests over one connection
+
+      ajv: {
+        customOptions: {
+          coerceTypes: true,
+          removeAdditional: true,
+        },
+      },
+    }),
   );
 
   await app.register(compress, {
