@@ -56,7 +56,7 @@ npm test
 GET /health
 ```
 
-Returns service health status with memory indicators.
+Returns service health status.
 
 ---
 
@@ -111,3 +111,52 @@ It seems that the response time is dominated by the infrastructure. Local testin
 ---
 
 ## UniswapV2 Return Amount
+
+```
+GET /return/:fromTokenAddress/:toTokenAddress/:amountIn
+```
+
+Calculates expected output amount for a UniswapV2 swap using off-chain math.
+
+### Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `fromTokenAddress` | string | Input token address (checksummed) |
+| `toTokenAddress` | string | Output token address (checksummed) |
+| `amountIn` | string | Input amount **in wei** (token's smallest unit) |
+
+### Token Decimals
+
+Amounts must be specified in the token's smallest unit (wei). Common tokens:
+
+| Token | Decimals | 1 token in wei |
+|-------|----------|----------------|
+| WETH | 18 | `1000000000000000000` |
+| USDC | 6 | `1000000` |
+| USDT | 6 | `1000000` |
+| DAI | 18 | `1000000000000000000` |
+
+### Example Requests
+
+**Swap 1 WETH → USDC:**
+```
+GET /return/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/1000000000000000000
+```
+
+**Swap 0.1 WETH → USDC:**
+```
+GET /return/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/100000000000000000
+```
+
+The `amountOut` is in the output token's smallest unit. For USDC (6 decimals), divide by `10^6` to get the human-readable amount:
+- `2500000000` ÷ `10^6` = **2500 USDC**
+
+### Common Token Addresses (Ethereum Mainnet)
+
+| Token | Address |
+|-------|---------|
+| WETH | `0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2` |
+| USDC | `0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48` |
+| USDT | `0xdAC17F958D2ee523a2206206994597C13D831ec7` |
+| DAI | `0x6B175474E89094C44Da98b954EedeAC495271d0F` |
