@@ -41,6 +41,7 @@ describe('API (e2e)', () => {
       .overrideProvider(EthService)
       .useValue({
         getProvider: jest.fn().mockReturnValue({}),
+        onReconnect: jest.fn().mockReturnValue(() => {}),
         subscribeToNewHeads: jest.fn(),
         isWebSocketConnected: jest.fn().mockReturnValue(true),
         getReconnectAttempts: jest.fn().mockReturnValue(0),
