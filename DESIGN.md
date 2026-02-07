@@ -190,7 +190,7 @@ Standard static caching won't work since gas prices change every ~12 seconds. Th
 3. Edge cache returns response (kept fresh via `stale-while-revalidate`)
 4. **Total Latency**: ~10ms (network) + ~5ms (edge) = **~15ms**
 
-**Further Optimizations (if <50ms still not achieved)**
+**Further Optimizations and Improvements**
 
 | Strategy | Implementation | Benefit |
 |----------|----------------|---------|
@@ -198,6 +198,8 @@ Standard static caching won't work since gas prices change every ~12 seconds. Th
 | **Fastify over Express** | Switch Nest.js HTTP adapter | ~5-10ms framework overhead reduction |
 | **Alternative runtimes** | Go / Rust | Potential latency gains |
 | **Redis/Valkey Introduction** | Write data to Redis/Valkey cluster | Enables horizontal scaling and solves the lack od data on startup |
+| **Rate Limiting** | To prevent DoS/DDoS attacks | Prevent the service going down |
+| **Move WS to separate service** | This service would update Redis/Valkey and the current would just read from Redis and return data to clients |
 
 #### Advanced Optimizations (Future Proofing)
 

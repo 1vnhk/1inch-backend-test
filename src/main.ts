@@ -6,6 +6,7 @@ import {
   NestFastifyApplication,
 } from '@nestjs/platform-fastify';
 import compress from '@fastify/compress';
+import fastifyEtag from '@fastify/etag';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
@@ -30,6 +31,8 @@ async function bootstrap() {
 
   const configService = app.get(ConfigService);
   const port = configService.get<number>('PORT') ?? 3000;
+
+  await app.register(fastifyEtag);
 
   await app.listen(port, '0.0.0.0');
 }
