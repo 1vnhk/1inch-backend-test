@@ -84,7 +84,7 @@ wscat -c wss://docs-demo.quiknode.pro/
 3. On each new block event, fetch updated gas price and update cache
 4. API requests read directly from cache (sub-millisecond)
 
-**NOTE**: The first request may work slower than 50ms but all the subsequent requests should be below the specified limit.
+**NOTE**: The initial request may exceed 50ms but all the subsequent requests should meet the SLA given the respective hardware and routing infrastructure is in place.
 
 #### API Specification
 
@@ -297,19 +297,19 @@ Using on-chain view functions like `getAmountsOut()` from the UniswapV2 is laten
 │                                                                             │
 │   Step 1: Compute Pair Address (CREATE2)                                    │
 │   ┌─────────────────┐                                                       │
-│   │ CREATE2 hash    │──────▶ No RPC call needed (deterministic)            │
+│   │ CREATE2 hash    │──────▶ No RPC call needed (deterministic)             │
 │   │ (local compute) │                                                       │
 │   └────────┬────────┘                                                       │
 │            │                                                                │
 │   Step 2: Get Reserves (single RPC call)                                    │
 │   ┌────────▼────────┐                                                       │
-│   │ Pair.getReserves│──────▶ HTTP call (~100-200ms latency)                │
+│   │ Pair.getReserves│──────▶ HTTP call (~100-200ms latency)                 │
 │   │ ()              │                                                       │
 │   └────────┬────────┘                                                       │
 │            │                                                                │
 │   Step 3: Off-Chain Math                                                    │
 │   ┌────────▼────────┐                                                       │
-│   │ getAmountOut()  │──────▶ Constant product formula with 0.3% fee        │
+│   │ getAmountOut()  │──────▶ Constant product formula with 0.3% fee         │
 │   │ (pure function) │                                                       │
 │   └────────┬────────┘                                                       │
 │            │                                                                │
@@ -339,7 +339,7 @@ A more efficient approach leverages `Uniswap V2 Sync events`, which are emitted 
 │                                    ▼                       ▼                │
 │                           ┌────────────────────────────────────┐            │
 │                           │         In-Memory Cache            │            │
-│                           │   pairAddress → { reserve0, reserve1 }         │
+│                           │   pairAddress → { reserve0, reserve1 }          │
 │                           └────────────────────────────────────┘            │
 │                                           ▲                                 │
 │   Subsequent Requests:                    │                                 │
@@ -350,7 +350,7 @@ A more efficient approach leverages `Uniswap V2 Sync events`, which are emitted 
 │                                                                             │
 │   Background:                                                               │
 │   ┌─────────────────┐                                                       │
-│   │ Sync Event      │────▶ Auto-update cache on every swap/mint/burn       │
+│   │ Sync Event      │────▶ Auto-update cache on every swap/mint/burn        │
 │   │ (WebSocket)     │                                                       │
 │   └─────────────────┘                                                       │
 └─────────────────────────────────────────────────────────────────────────────┘

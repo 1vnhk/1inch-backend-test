@@ -104,9 +104,9 @@ Returns current Ethereum gas prices with EIP-1559 fee data.
 - **Update frequency**: Every new block (~12s)
 - **Caching**: In-memory with WebSocket updates
 
-Current latency is 50-100ms when deployed to Render Free Tier (https://oneinch-backend-test.onrender.com/gasPrice/1):
+Current latency is 50-100ms when deployed to Render Free Tier (Germany) (https://oneinch-backend-test.onrender.com/gasPrice/1):
 [Screenshot](https://prnt.sc/qLzoTbyjZxR2)
-It seems that the response time is dominated by the infrastructure. Local testing showed results <50ms. In a production environment, this can be solved with better hardware infrastructure and better routing. Using TLS 1.3 also should reduce the handshake time. 
+It seems that the response time is dominated by the infrastructure. In a production environment, this can be solved with better hardware infrastructure and better routing. Using TLS 1.3 also should reduce the handshake time. 
 
 ---
 
