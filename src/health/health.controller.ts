@@ -4,11 +4,13 @@ import {
   HealthCheckService,
   MemoryHealthIndicator,
 } from '@nestjs/terminus';
+import { SkipThrottle } from '@nestjs/throttler';
 import { EthWsHealthIndicator } from './eth-ws.health';
 
 const MAX_HEAP_MEMORY_USAGE_MB = 200 * 1024 * 1024; // 200 MB
 
 @Controller('health')
+@SkipThrottle()
 export class HealthController {
   constructor(
     private health: HealthCheckService,

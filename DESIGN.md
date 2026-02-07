@@ -195,10 +195,8 @@ Standard static caching won't work since gas prices change every ~12 seconds. Th
 | Strategy | Implementation | Benefit |
 |----------|----------------|---------|
 | **Multi-Region Deployment** | Deploy origin to US-East, EU-Central, AP-Southeast | Reduces origin latency on cache miss |
-| **Fastify over Express** | Switch Nest.js HTTP adapter | ~5-10ms framework overhead reduction |
 | **Alternative runtimes** | Go / Rust | Potential latency gains |
 | **Redis/Valkey Introduction** | Write data to Redis/Valkey cluster | Enables horizontal scaling and solves the lack od data on startup |
-| **Rate Limiting** | To prevent DoS/DDoS attacks | Prevent the service going down |
 | **Move WS to separate service** | This service would update Redis/Valkey and the current would just read from Redis and return data to clients |
 
 #### Advanced Optimizations (Future Proofing)

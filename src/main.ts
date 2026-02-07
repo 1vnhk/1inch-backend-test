@@ -34,6 +34,7 @@ async function bootstrap() {
 
   await app.register(fastifyEtag);
 
+  app.enableShutdownHooks();
   await app.listen(port, '0.0.0.0');
 }
 bootstrap();
