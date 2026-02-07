@@ -197,7 +197,7 @@ Standard static caching won't work since gas prices change every ~12 seconds. Th
 | **Multi-Region Deployment** | Deploy origin to US-East, EU-Central, AP-Southeast | Reduces origin latency on cache miss |
 | **Alternative runtimes** | Go / Rust | Potential latency gains |
 | **Redis/Valkey Introduction** | Write data to Redis/Valkey cluster | Enables horizontal scaling and solves the lack od data on startup |
-| **Move WS to separate service** | This service would update Redis/Valkey and the current would just read from Redis and return data to clients |
+| **Move WS to separate service** | This service would update Redis/Valkey and the current would just read from Redis/Valkey and return data to clients |
 
 #### Advanced Optimizations (Future Proofing)
 
@@ -478,6 +478,13 @@ The current endpoint returns a point-in-time quote. Enhanced response could incl
 **3. Multi-DEX Aggregation**
 
 Query reserves from multiple DEXs (Uniswap, Sushiswap, etc.) and return the best rate—similar to what 1inch does in production.
+
+**Further Optimizations and Improvements**
+
+| Strategy | Implementation | Benefit |
+|----------|----------------|---------|
+| **Add cache eviction** | Use native JS `Map` as LRU when max size cap reached for reserves/pairs | Prevent growth of caches and WebSocket subscriptions |
+| **Prevent fetchAndSubscribe hanging out** | Wrap `getReserves` with `Promise.race` | Prevent hanging |
 
 ---
 
