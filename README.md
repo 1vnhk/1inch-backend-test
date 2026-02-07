@@ -48,6 +48,22 @@ npm test
 
 ---
 
+## Live Demo
+
+Deployed on Render - Germany (free tier):
+
+| Endpoint | URL |
+|----------|-----|
+| Root | https://oneinch-backend-test.onrender.com |
+| Gas Price | https://oneinch-backend-test.onrender.com/gasPrice/1 |
+| Swap 1 WETH → USDC | https://oneinch-backend-test.onrender.com/return/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/1000000000000000000 |
+
+> **Note**: Render free tier spins down after inactivity. The first request may take longer while the instance cold-starts.
+
+For convenience, I suggest using `Postman` to see response times.
+
+---
+
 ## API Endpoints
 
 ### Health Check
