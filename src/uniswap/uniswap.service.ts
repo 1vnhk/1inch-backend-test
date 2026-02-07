@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ethers } from 'ethers';
 import { EthService } from '../eth/eth.service';
 
@@ -18,7 +23,7 @@ interface ReservesCache {
 }
 
 @Injectable()
-export class UniswapService implements OnModuleDestroy {
+export class UniswapService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(UniswapService.name);
 
   // pairAddress -> reserves
@@ -30,9 +35,22 @@ export class UniswapService implements OnModuleDestroy {
   // Track contract instances for cleanup
   private readonly pairContracts = new Map<string, ethers.Contract>();
 
+  // Incremented on provider reconnect — guards against stale in-flight fetches
+  private providerGeneration = 0;
+
+  private unsubscribeReconnect?: () => void;
+
   constructor(private readonly ethService: EthService) {}
 
+  onModuleInit() {
+    this.unsubscribeReconnect = this.ethService.onReconnect(() =>
+      this.invalidateSubscriptions(),
+    );
+  }
+
   onModuleDestroy() {
+    this.unsubscribeReconnect?.();
+
     for (const contract of this.pairContracts.values()) {
       contract.removeAllListeners();
     }
@@ -40,6 +58,25 @@ export class UniswapService implements OnModuleDestroy {
     this.pairContracts.clear();
     this.pendingFetches.clear();
     this.reservesCache.clear();
+  }
+
+  /**
+   * Invalidate all Sync subscriptions and cached reserves.
+   * Called when the WebSocket provider reconnects — old contracts are dead.
+   */
+  private invalidateSubscriptions(): void {
+    this.logger.warn(
+      'Provider reconnected — invalidating all Sync subscriptions',
+    );
+
+    for (const contract of this.pairContracts.values()) {
+      contract.removeAllListeners();
+    }
+
+    this.pairContracts.clear();
+    this.pendingFetches.clear();
+    this.reservesCache.clear();
+    this.providerGeneration += 1;
   }
 
   public async getReturnAmount(
@@ -116,6 +153,7 @@ export class UniswapService implements OnModuleDestroy {
    * Fetch reserves via WebSocket and subscribe to Sync events.
    */
   private async fetchAndSubscribe(pairAddress: string): Promise<ReservesCache> {
+    const generation = this.providerGeneration;
     const provider = this.ethService.getProvider();
 
     if (!provider) {
@@ -137,6 +175,14 @@ export class UniswapService implements OnModuleDestroy {
       reserve1: reserve1.toBigInt(),
       lastUpdated: Date.now(),
     };
+
+    // If provider reconnected during fetch, discard — next request will re-fetch
+    if (generation !== this.providerGeneration) {
+      this.logger.warn(
+        `Discarding stale reserves for ${pairAddress} (provider reconnected)`,
+      );
+      return reserves;
+    }
 
     // Update cache
     this.reservesCache.set(pairAddress, reserves);

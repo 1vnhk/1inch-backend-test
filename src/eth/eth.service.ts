@@ -13,6 +13,8 @@ export class EthService implements OnModuleInit, OnModuleDestroy {
   private wsProvider: ethers.providers.WebSocketProvider;
   private readonly logger = new Logger(EthService.name);
 
+  private readonly reconnectListeners = new Set<() => void>();
+
   private reconnectTimer?: NodeJS.Timeout;
   private reconnectAttempts = 0;
   private isShuttingDown = false;
@@ -28,11 +30,21 @@ export class EthService implements OnModuleInit, OnModuleDestroy {
 
   onModuleDestroy() {
     this.isShuttingDown = true;
+    this.reconnectListeners.clear();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = undefined;
     }
     void this.wsProvider?.destroy();
+  }
+
+  /**
+   * Register a listener for provider reconnect events.
+   * Returns an unsubscribe function.
+   */
+  onReconnect(listener: () => void): () => void {
+    this.reconnectListeners.add(listener);
+    return () => this.reconnectListeners.delete(listener);
   }
 
   public subscribeToNewHeads(): void {
@@ -58,9 +70,9 @@ export class EthService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Get the WebSocket provider for creating contract instances.
-   * Used by other services that need real-time blockchain data.
+   * Returns undefined before initialization or during reconnect.
    */
-  getProvider(): ethers.providers.WebSocketProvider {
+  getProvider(): ethers.providers.WebSocketProvider | undefined {
     return this.wsProvider;
   }
 
@@ -125,6 +137,9 @@ export class EthService implements OnModuleInit, OnModuleDestroy {
       }
 
       this.createWebSocketProvider();
+      for (const listener of this.reconnectListeners) {
+        listener();
+      }
     }, backoffMs);
   }
 }

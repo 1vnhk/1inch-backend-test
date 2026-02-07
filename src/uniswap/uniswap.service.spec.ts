@@ -31,14 +31,20 @@ describe('UniswapService', () => {
   let service: UniswapService;
 
   const mockProvider = {} as ethers.providers.WebSocketProvider;
+  let triggerReconnect: () => void;
 
   const mockEthService = {
     getProvider: jest.fn().mockReturnValue(mockProvider),
+    onReconnect: jest.fn(),
   };
 
   beforeEach(async () => {
     jest.clearAllMocks();
     mockEthService.getProvider.mockReturnValue(mockProvider);
+    mockEthService.onReconnect.mockImplementation((cb: () => void) => {
+      triggerReconnect = cb;
+      return () => {}; // unsubscribe noop
+    });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -51,6 +57,7 @@ describe('UniswapService', () => {
     }).compile();
 
     service = module.get<UniswapService>(UniswapService);
+    service.onModuleInit();
   });
 
   afterEach(() => {
@@ -305,6 +312,93 @@ describe('UniswapService', () => {
 
       expect(result).toBeGreaterThan(0n);
       expect(mockGetReserves).toHaveBeenCalledTimes(2);
+    });
+
+    describe('provider reconnect', () => {
+      it('should invalidate cache and re-fetch after reconnect', async () => {
+        mockReserves();
+
+        // Populate cache
+        await service.getReturnAmount(WETH, USDC, '1000000000000000000');
+        expect(mockGetReserves).toHaveBeenCalledTimes(1);
+
+        // Simulate provider reconnect
+        triggerReconnect();
+
+        // Next call should re-fetch (cache was cleared)
+        mockReserves();
+        await service.getReturnAmount(WETH, USDC, '1000000000000000000');
+        expect(mockGetReserves).toHaveBeenCalledTimes(2);
+      });
+
+      it('should remove old Sync listeners on reconnect', async () => {
+        mockReserves();
+
+        await service.getReturnAmount(WETH, USDC, '1000000000000000000');
+        expect(mockOn).toHaveBeenCalledTimes(1);
+
+        // Reconnect should remove old listeners
+        triggerReconnect();
+        expect(mockRemoveAllListeners).toHaveBeenCalled();
+      });
+
+      it('should re-subscribe to Sync on new provider after reconnect', async () => {
+        mockReserves();
+
+        await service.getReturnAmount(WETH, USDC, '1000000000000000000');
+        expect(mockOn).toHaveBeenCalledTimes(1);
+
+        triggerReconnect();
+        mockOn.mockClear();
+
+        // Next request creates a new subscription on the new provider
+        mockReserves();
+        await service.getReturnAmount(WETH, USDC, '1000000000000000000');
+        expect(mockOn).toHaveBeenCalledTimes(1);
+        expect(mockOn).toHaveBeenCalledWith('Sync', expect.any(Function));
+      });
+
+      it('should discard stale fetch that resolves after reconnect', async () => {
+        // Start a slow fetch
+        let resolveGetReserves!: (value: unknown) => void;
+        mockGetReserves.mockReturnValue(
+          new Promise((resolve) => {
+            resolveGetReserves = resolve;
+          }),
+        );
+
+        const fetchPromise = service.getReturnAmount(
+          WETH,
+          USDC,
+          '1000000000000000000',
+        );
+
+        // Reconnect while fetch is in-flight
+        triggerReconnect();
+
+        // Resolve the stale fetch
+        resolveGetReserves([
+          ethers.BigNumber.from('100000000000000000000'),
+          ethers.BigNumber.from('200000000000'),
+          0,
+        ]);
+
+        await fetchPromise;
+
+        // Stale data should NOT have been subscribed to Sync
+        expect(mockOn).not.toHaveBeenCalled();
+
+        // Next request should re-fetch on the new provider
+        mockGetReserves.mockResolvedValue([
+          ethers.BigNumber.from('100000000000000000000'),
+          ethers.BigNumber.from('200000000000'),
+          0,
+        ]);
+
+        await service.getReturnAmount(WETH, USDC, '1000000000000000000');
+        expect(mockGetReserves).toHaveBeenCalledTimes(2);
+        expect(mockOn).toHaveBeenCalledTimes(1);
+      });
     });
   });
 });

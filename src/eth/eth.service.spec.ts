@@ -142,4 +142,68 @@ describe('EthService', () => {
     setTimeoutSpy.mockRestore();
     jest.useRealTimers();
   });
+
+  it('calls reconnect listener after websocket reconnects', () => {
+    jest.useFakeTimers();
+
+    service.onModuleInit();
+
+    const reconnectHandler = jest.fn();
+    service.onReconnect(reconnectHandler);
+
+    // Trigger reconnect
+    wsHandlers.onclose?.();
+    jest.runAllTimers();
+
+    expect(reconnectHandler).toHaveBeenCalledTimes(1);
+
+    jest.useRealTimers();
+  });
+
+  it('does not call reconnect listener on initial connection', () => {
+    const reconnectHandler = jest.fn();
+    service.onReconnect(reconnectHandler);
+
+    service.onModuleInit();
+
+    expect(reconnectHandler).not.toHaveBeenCalled();
+  });
+
+  it('removes listener via returned unsubscribe function', () => {
+    jest.useFakeTimers();
+
+    service.onModuleInit();
+
+    const reconnectHandler = jest.fn();
+    const unsubscribe = service.onReconnect(reconnectHandler);
+
+    unsubscribe();
+
+    wsHandlers.onclose?.();
+    jest.runAllTimers();
+
+    expect(reconnectHandler).not.toHaveBeenCalled();
+
+    jest.useRealTimers();
+  });
+
+  it('clears all listeners on module destroy', () => {
+    jest.useFakeTimers();
+
+    service.onModuleInit();
+
+    const reconnectHandler = jest.fn();
+    service.onReconnect(reconnectHandler);
+
+    service.onModuleDestroy();
+
+    // Re-init to get a new provider that can trigger close
+    service.onModuleInit();
+    wsHandlers.onclose?.();
+    jest.runAllTimers();
+
+    expect(reconnectHandler).not.toHaveBeenCalled();
+
+    jest.useRealTimers();
+  });
 });
