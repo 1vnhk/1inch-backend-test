@@ -1,0 +1,21 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - ETH_NODE_WS=${ETH_NODE_WS}
+        - GAS_PRICE_STALENESS_MS=${GAS_PRICE_STALENESS_MS:-20000}
+        - GRACE_PERIOD_MS=${GRACE_PERIOD_MS:-30000}
+    ports:
+      - "3000:3000"
+    # Runtime env vars override build-time values if needed
+    environment:
+      - ETH_NODE_WS=${ETH_NODE_WS}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
