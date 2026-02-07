@@ -45,7 +45,7 @@ export class UniswapService implements OnModuleDestroy {
   public async getReturnAmount(
     fromToken: string,
     toToken: string,
-    amountIn: number,
+    amountIn: string, // String to preserve uint256 precision
   ): Promise<bigint> {
     const pairAddress = this.computePairAddress(fromToken, toToken);
 

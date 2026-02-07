@@ -4,11 +4,13 @@ import {
   Param,
   HttpException,
   HttpStatus,
-  ParseFloatPipe,
 } from '@nestjs/common';
 import { UniswapService } from './uniswap.service';
 import { SwapReturnDto } from './dto';
 import { ethers } from 'ethers';
+
+// Regex for positive integer (no leading zeros except "0" itself)
+const POSITIVE_INT_REGEX = /^[1-9]\d*$/;
 
 @Controller('return')
 export class UniswapController {
@@ -18,7 +20,7 @@ export class UniswapController {
   async getReturnAmount(
     @Param('fromTokenAddress') fromTokenAddress: string,
     @Param('toTokenAddress') toTokenAddress: string,
-    @Param('amountIn', ParseFloatPipe) amountIn: number,
+    @Param('amountIn') amountIn: string, // Keep as string to preserve uint256 precision
   ): Promise<SwapReturnDto> {
     if (!ethers.utils.isAddress(fromTokenAddress)) {
       throw new HttpException(
@@ -40,7 +42,6 @@ export class UniswapController {
       );
     }
 
-    // Validate identical addresses
     if (fromTokenAddress.toLowerCase() === toTokenAddress.toLowerCase()) {
       throw new HttpException(
         {
@@ -51,11 +52,12 @@ export class UniswapController {
       );
     }
 
-    if (amountIn <= 0) {
+    // Validate amountIn is a positive integer string (preserves uint256 precision)
+    if (!POSITIVE_INT_REGEX.test(amountIn)) {
       throw new HttpException(
         {
           statusCode: HttpStatus.BAD_REQUEST,
-          message: 'amountIn must be positive',
+          message: 'amountIn must be a positive integer',
         },
         HttpStatus.BAD_REQUEST,
       );
@@ -65,7 +67,7 @@ export class UniswapController {
       const amountOut = await this.uniswapService.getReturnAmount(
         fromTokenAddress,
         toTokenAddress,
-        Number(amountIn),
+        amountIn, // Pass as string to preserve precision
       );
 
       return { amountOut: amountOut.toString() };

@@ -38,14 +38,14 @@ describe('UniswapController', () => {
     describe('input validation', () => {
       it('should reject invalid fromTokenAddress', async () => {
         await expect(
-          controller.getReturnAmount('invalid', USDC, 1000000000000000000),
+          controller.getReturnAmount('invalid', USDC, '1000000000000000000'),
         ).rejects.toThrow(HttpException);
 
         try {
           await controller.getReturnAmount(
             'invalid',
             USDC,
-            1000000000000000000,
+            '1000000000000000000',
           );
         } catch (error) {
           expect((error as HttpException).getStatus()).toBe(
@@ -59,14 +59,14 @@ describe('UniswapController', () => {
 
       it('should reject invalid toTokenAddress', async () => {
         await expect(
-          controller.getReturnAmount(WETH, '0xINVALID', 1000000000000000000),
+          controller.getReturnAmount(WETH, '0xINVALID', '1000000000000000000'),
         ).rejects.toThrow(HttpException);
 
         try {
           await controller.getReturnAmount(
             WETH,
             '0xINVALID',
-            1000000000000000000,
+            '1000000000000000000',
           );
         } catch (error) {
           expect((error as HttpException).getStatus()).toBe(
@@ -80,11 +80,11 @@ describe('UniswapController', () => {
 
       it('should reject identical addresses', async () => {
         await expect(
-          controller.getReturnAmount(WETH, WETH, 1000000000000000000),
+          controller.getReturnAmount(WETH, WETH, '1000000000000000000'),
         ).rejects.toThrow(HttpException);
 
         try {
-          await controller.getReturnAmount(WETH, WETH, 1000000000000000000);
+          await controller.getReturnAmount(WETH, WETH, '1000000000000000000');
         } catch (error) {
           expect((error as HttpException).getStatus()).toBe(
             HttpStatus.BAD_REQUEST,
@@ -96,33 +96,50 @@ describe('UniswapController', () => {
       });
 
       it('should reject zero amountIn', async () => {
-        await expect(controller.getReturnAmount(WETH, USDC, 0)).rejects.toThrow(
-          HttpException,
-        );
+        await expect(
+          controller.getReturnAmount(WETH, USDC, '0'),
+        ).rejects.toThrow(HttpException);
 
         try {
-          await controller.getReturnAmount(WETH, USDC, 0);
+          await controller.getReturnAmount(WETH, USDC, '0');
         } catch (error) {
           expect((error as HttpException).getStatus()).toBe(
             HttpStatus.BAD_REQUEST,
           );
           expect((error as HttpException).getResponse()).toMatchObject({
-            message: 'amountIn must be positive',
+            message: 'amountIn must be a positive integer',
           });
         }
       });
 
       it('should reject negative amountIn', async () => {
         await expect(
-          controller.getReturnAmount(WETH, USDC, -100),
+          controller.getReturnAmount(WETH, USDC, '-100'),
         ).rejects.toThrow(HttpException);
 
         try {
-          await controller.getReturnAmount(WETH, USDC, -100);
+          await controller.getReturnAmount(WETH, USDC, '-100');
         } catch (error) {
           expect((error as HttpException).getStatus()).toBe(
             HttpStatus.BAD_REQUEST,
           );
+        }
+      });
+
+      it('should reject non-integer amountIn', async () => {
+        await expect(
+          controller.getReturnAmount(WETH, USDC, '1.5'),
+        ).rejects.toThrow(HttpException);
+
+        try {
+          await controller.getReturnAmount(WETH, USDC, '1.5');
+        } catch (error) {
+          expect((error as HttpException).getStatus()).toBe(
+            HttpStatus.BAD_REQUEST,
+          );
+          expect((error as HttpException).getResponse()).toMatchObject({
+            message: 'amountIn must be a positive integer',
+          });
         }
       });
     });
@@ -135,7 +152,7 @@ describe('UniswapController', () => {
         const result = await controller.getReturnAmount(
           WETH,
           USDC,
-          1000000000000000000,
+          '1000000000000000000',
         );
 
         expect(result).toEqual({ amountOut: '1970000000' });
@@ -143,17 +160,29 @@ describe('UniswapController', () => {
         expect(uniswapService.getReturnAmount).toHaveBeenCalledWith(
           WETH,
           USDC,
-          1000000000000000000,
+          '1000000000000000000',
         );
       });
 
-      it('should handle decimal amounts', async () => {
+      it('should handle large amounts without precision loss', async () => {
         const expectedAmountOut = BigInt('500000000');
         uniswapService.getReturnAmount.mockResolvedValue(expectedAmountOut);
 
-        const result = await controller.getReturnAmount(WETH, USDC, 0.5e18);
+        // Test with value larger than Number.MAX_SAFE_INTEGER
+        const largeAmount = '123456789012345678901234567890';
+        const result = await controller.getReturnAmount(
+          WETH,
+          USDC,
+          largeAmount,
+        );
 
         expect(result.amountOut).toBe('500000000');
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(uniswapService.getReturnAmount).toHaveBeenCalledWith(
+          WETH,
+          USDC,
+          largeAmount, // String preserved exactly
+        );
       });
     });
 
@@ -164,7 +193,7 @@ describe('UniswapController', () => {
         );
 
         try {
-          await controller.getReturnAmount(WETH, USDC, 1000000000000000000);
+          await controller.getReturnAmount(WETH, USDC, '1000000000000000000');
         } catch (error) {
           expect((error as HttpException).getStatus()).toBe(
             HttpStatus.UNPROCESSABLE_ENTITY,
@@ -181,7 +210,7 @@ describe('UniswapController', () => {
         );
 
         try {
-          await controller.getReturnAmount(WETH, USDC, 1000000000000000000);
+          await controller.getReturnAmount(WETH, USDC, '1000000000000000000');
         } catch (error) {
           expect((error as HttpException).getStatus()).toBe(
             HttpStatus.NOT_FOUND,
@@ -193,17 +222,24 @@ describe('UniswapController', () => {
       });
 
       it('should return 500 for unknown errors', async () => {
+        // Suppress expected console.error from error handling path
+        const consoleSpy = jest
+          .spyOn(console, 'error')
+          .mockImplementation(() => {});
+
         uniswapService.getReturnAmount.mockRejectedValue(
           new Error('Unknown error'),
         );
 
         try {
-          await controller.getReturnAmount(WETH, USDC, 1000000000000000000);
+          await controller.getReturnAmount(WETH, USDC, '1000000000000000000');
         } catch (error) {
           expect((error as HttpException).getStatus()).toBe(
             HttpStatus.INTERNAL_SERVER_ERROR,
           );
         }
+
+        consoleSpy.mockRestore();
       });
     });
   });
