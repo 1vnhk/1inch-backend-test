@@ -10,7 +10,7 @@ import { GasPriceService } from '../gas-price/gas-price.service';
 
 @Injectable()
 export class EthService implements OnModuleInit, OnModuleDestroy {
-  private wsProvider: ethers.providers.WebSocketProvider;
+  private wsProvider!: ethers.providers.WebSocketProvider;
   private readonly logger = new Logger(EthService.name);
 
   private readonly reconnectListeners = new Set<() => void>();

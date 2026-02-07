@@ -1,3 +1,3 @@
 export class SwapReturnDto {
-  amountOut: string;
+  amountOut!: string;
 }
