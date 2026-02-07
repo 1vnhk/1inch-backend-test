@@ -52,7 +52,7 @@ export class UniswapService implements OnModuleInit, OnModuleDestroy {
     this.unsubscribeReconnect?.();
 
     for (const contract of this.pairContracts.values()) {
-      contract.removeAllListeners();
+      void contract.removeAllListeners();
     }
 
     this.pairContracts.clear();
@@ -70,7 +70,7 @@ export class UniswapService implements OnModuleInit, OnModuleDestroy {
     );
 
     for (const contract of this.pairContracts.values()) {
-      contract.removeAllListeners();
+      void contract.removeAllListeners();
     }
 
     this.pairContracts.clear();
@@ -103,11 +103,11 @@ export class UniswapService implements OnModuleInit, OnModuleDestroy {
    */
   public computePairAddress(tokenA: string, tokenB: string): string {
     const [token0, token1] = this.sortTokens(tokenA, tokenB);
-    const salt = ethers.utils.keccak256(
-      ethers.utils.solidityPack(['address', 'address'], [token0, token1]),
+    const salt = ethers.keccak256(
+      ethers.solidityPacked(['address', 'address'], [token0, token1]),
     );
 
-    return ethers.utils.getCreate2Address(
+    return ethers.getCreate2Address(
       UNISWAP_V2_FACTORY,
       salt,
       UNISWAP_V2_INIT_CODE,
@@ -162,17 +162,15 @@ export class UniswapService implements OnModuleInit, OnModuleDestroy {
 
     const pairContract = new ethers.Contract(pairAddress, PAIR_ABI, provider);
 
-    // Fetch current reserves (ethers v5 dynamic contract - type assertion required)
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call
     const [reserve0, reserve1] = (await pairContract.getReserves()) as [
-      ethers.BigNumber,
-      ethers.BigNumber,
-      number,
+      bigint,
+      bigint,
+      bigint,
     ];
 
     const reserves: ReservesCache = {
-      reserve0: reserve0.toBigInt(),
-      reserve1: reserve1.toBigInt(),
+      reserve0: reserve0,
+      reserve1: reserve1,
       lastUpdated: Date.now(),
     };
 
@@ -205,17 +203,14 @@ export class UniswapService implements OnModuleInit, OnModuleDestroy {
   ): void {
     this.pairContracts.set(pairAddress, pairContract);
 
-    pairContract.on(
-      'Sync',
-      (reserve0: ethers.BigNumber, reserve1: ethers.BigNumber) => {
-        this.reservesCache.set(pairAddress, {
-          reserve0: reserve0.toBigInt(),
-          reserve1: reserve1.toBigInt(),
-          lastUpdated: Date.now(),
-        });
-        this.logger.debug(`Sync event: ${pairAddress} updated`);
-      },
-    );
+    void pairContract.on('Sync', (reserve0: bigint, reserve1: bigint) => {
+      this.reservesCache.set(pairAddress, {
+        reserve0: reserve0,
+        reserve1: reserve1,
+        lastUpdated: Date.now(),
+      });
+      this.logger.debug(`Sync event: ${pairAddress} updated`);
+    });
 
     this.logger.log(`Subscribed to Sync events for pair ${pairAddress}`);
   }

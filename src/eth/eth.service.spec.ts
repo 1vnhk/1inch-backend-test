@@ -1,90 +1,105 @@
-import { ethers } from 'ethers';
+import { WebSocketProvider } from 'ethers';
 import { Logger } from '@nestjs/common';
 import { EthService } from './eth.service';
 import { GasPriceService } from '../gas-price/gas-price.service';
 
 jest.mock('ethers', () => ({
-  ethers: {
-    providers: { WebSocketProvider: jest.fn() },
-    BigNumber: { from: jest.fn() },
-  },
+  WebSocketProvider: jest.fn(),
 }));
 
-const MockWSProvider = ethers.providers
-  .WebSocketProvider as unknown as jest.Mock;
-// eslint-disable-next-line @typescript-eslint/unbound-method
-const mockBigNumberFrom = ethers.BigNumber.from as unknown as jest.Mock;
+const MockWSProvider = WebSocketProvider as unknown as jest.Mock;
 
-const flushPromises = () =>
-  new Promise<void>((resolve) => setImmediate(resolve));
+const flushMicrotasks = async () => {
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+};
+
+// Suppress NestJS Logger output entirely — prevents stray logs from
+// lingering microtasks that resolve after Jest restores mocks.
+beforeAll(() => {
+  Logger.overrideLogger(false);
+});
+afterAll(() => {
+  Logger.overrideLogger(['log', 'error', 'warn', 'debug', 'verbose']);
+});
 
 describe('EthService', () => {
   let service: EthService;
+  let gasPriceService: GasPriceService;
   let updateGasPriceSpy: jest.SpyInstance;
-  let subscribeSpy: jest.SpyInstance;
 
-  let blockHandler: ((n: number) => void) | undefined;
-  let wsHandlers: { onclose?: () => void; onerror?: () => void };
+  let eventHandlers: Record<string, (...args: unknown[]) => unknown>;
   let mockGetBlock: jest.Mock;
   let mockSend: jest.Mock;
   let mockDestroy: jest.Mock;
+  let mockOn: jest.Mock;
+
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
 
   beforeEach(() => {
     jest.clearAllMocks();
-    jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
-    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
-    jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
 
-    blockHandler = undefined;
-    wsHandlers = {};
+    eventHandlers = {};
     mockGetBlock = jest.fn();
     mockSend = jest.fn();
-    mockDestroy = jest.fn();
+    mockDestroy = jest.fn().mockResolvedValue(undefined);
+    mockOn = jest.fn(
+      (event: string, handler: (...args: unknown[]) => unknown) => {
+        eventHandlers[event] = handler;
+        return Promise.resolve(); // ethers v6 .on() returns Promise
+      },
+    );
 
     MockWSProvider.mockImplementation(() => ({
-      on: jest.fn((event: string, handler: (n: number) => void) => {
-        if (event === 'block') blockHandler = handler;
-      }),
+      on: mockOn,
       getBlock: mockGetBlock,
       send: mockSend,
       destroy: mockDestroy,
-      _websocket: wsHandlers,
     }));
 
     const configService = {
       getOrThrow: jest.fn().mockReturnValue('wss://example'),
     };
-    const gasPriceService = {
+    gasPriceService = {
       updateGasPrice: jest.fn(),
     } as unknown as GasPriceService;
 
     service = new EthService(configService as never, gasPriceService);
     updateGasPriceSpy = jest.spyOn(gasPriceService, 'updateGasPrice');
-    subscribeSpy = jest.spyOn(service, 'subscribeToNewHeads');
   });
 
-  it('creates WS provider and subscribes to new heads on init', () => {
+  it('creates WebSocketProvider and registers event listeners on init', () => {
     service.onModuleInit();
 
     expect(MockWSProvider).toHaveBeenCalledWith('wss://example');
-    expect(subscribeSpy).toHaveBeenCalled();
-    expect(blockHandler).toBeDefined();
+    expect(mockOn).toHaveBeenCalledWith('block', expect.any(Function));
+    expect(mockOn).toHaveBeenCalledWith('error', expect.any(Function));
   });
 
   it('fetches and updates gas price when a new block arrives', async () => {
-    mockGetBlock.mockResolvedValue({
-      baseFeePerGas: { toBigInt: () => 100n },
-    });
+    mockGetBlock.mockResolvedValue({ baseFeePerGas: 100n });
     mockSend.mockResolvedValue('0x10');
-    mockBigNumberFrom.mockReturnValue({ toBigInt: () => 16n });
 
     service.onModuleInit();
-    blockHandler?.(123);
-    await flushPromises();
+    eventHandlers['block'](123);
+    await flushMicrotasks();
 
     expect(mockGetBlock).toHaveBeenCalledWith(123);
     expect(mockSend).toHaveBeenCalledWith('eth_maxPriorityFeePerGas', []);
-    expect(updateGasPriceSpy).toHaveBeenCalledWith(100n, 16n);
+    expect(updateGasPriceSpy).toHaveBeenCalledWith(100n, BigInt('0x10'));
+  });
+
+  it('skips update when block is null', async () => {
+    mockGetBlock.mockResolvedValue(null);
+    mockSend.mockResolvedValue('0x10');
+
+    service.onModuleInit();
+    eventHandlers['block'](456);
+    await flushMicrotasks();
+
+    expect(updateGasPriceSpy).not.toHaveBeenCalled();
   });
 
   it('skips update when baseFeePerGas is missing', async () => {
@@ -92,118 +107,329 @@ describe('EthService', () => {
     mockSend.mockResolvedValue('0x10');
 
     service.onModuleInit();
-    blockHandler?.(456);
-    await flushPromises();
+    eventHandlers['block'](456);
+    await flushMicrotasks();
 
     expect(updateGasPriceSpy).not.toHaveBeenCalled();
   });
 
-  it('destroys provider on module destroy', () => {
+  it('skips update when provider is undefined (during reconnect)', async () => {
     service.onModuleInit();
-    service.onModuleDestroy();
+
+    // Simulate provider being cleared during reconnect
+    eventHandlers['error'](new Error('socket died'));
+    await flushMicrotasks();
+
+    // Provider is now undefined — block handler should bail
+    mockGetBlock.mockClear();
+    eventHandlers['block'](999);
+    await flushMicrotasks();
+
+    expect(mockGetBlock).not.toHaveBeenCalled();
+    expect(updateGasPriceSpy).not.toHaveBeenCalled();
+  });
+
+  it('logs error when fetchAndUpdateGasPrice throws', async () => {
+    const errorSpy = jest.spyOn(Logger.prototype, 'error');
+    mockGetBlock.mockRejectedValue(new Error('rpc failure'));
+
+    service.onModuleInit();
+    eventHandlers['block'](789);
+    await flushMicrotasks();
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('789'),
+      expect.any(Error),
+    );
+    expect(updateGasPriceSpy).not.toHaveBeenCalled();
+  });
+
+  it('destroys provider on module destroy', async () => {
+    service.onModuleInit();
+    await service.onModuleDestroy();
 
     expect(mockDestroy).toHaveBeenCalled();
   });
 
-  it('reconnects with backoff on websocket close', () => {
-    jest.useFakeTimers();
-    const setTimeoutSpy = jest.spyOn(global, 'setTimeout');
-
+  it('nullifies provider on module destroy', async () => {
     service.onModuleInit();
-    expect(wsHandlers.onclose).toBeDefined();
+    expect(service.getProvider()).toBeDefined();
 
-    wsHandlers.onclose?.();
-    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 1_000);
+    await service.onModuleDestroy();
 
-    jest.runAllTimers();
-
-    expect(mockDestroy).toHaveBeenCalled();
-    expect(MockWSProvider).toHaveBeenCalledTimes(2);
-
-    setTimeoutSpy.mockRestore();
-    jest.useRealTimers();
+    expect(service.getProvider()).toBeUndefined();
   });
 
-  it('reconnects with backoff on websocket error', () => {
-    jest.useFakeTimers();
-    const setTimeoutSpy = jest.spyOn(global, 'setTimeout');
+  describe('reconnect', () => {
+    it('reconnects after error event with exponential backoff', async () => {
+      jest.useFakeTimers();
 
-    service.onModuleInit();
-    expect(wsHandlers.onerror).toBeDefined();
+      service.onModuleInit();
+      expect(eventHandlers['error']).toBeDefined();
 
-    wsHandlers.onerror?.();
-    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 1_000);
+      // First error — backoff should be 1s (1000 * 2^0)
+      eventHandlers['error'](new Error('socket died'));
+      await flushMicrotasks();
 
-    jest.runAllTimers();
+      expect(mockDestroy).toHaveBeenCalledTimes(1);
 
-    expect(mockDestroy).toHaveBeenCalled();
-    expect(MockWSProvider).toHaveBeenCalledTimes(2);
+      jest.advanceTimersByTime(1_000);
+      await flushMicrotasks();
 
-    setTimeoutSpy.mockRestore();
-    jest.useRealTimers();
+      expect(MockWSProvider).toHaveBeenCalledTimes(2);
+
+      jest.useRealTimers();
+    });
+
+    it('increases backoff on successive failures', async () => {
+      jest.useFakeTimers();
+      const setTimeoutSpy = jest.spyOn(global, 'setTimeout');
+
+      service.onModuleInit();
+
+      // First reconnect — 1s backoff
+      eventHandlers['error'](new Error('die'));
+      await flushMicrotasks();
+
+      jest.advanceTimersByTime(1_000);
+      await flushMicrotasks();
+
+      expect(MockWSProvider).toHaveBeenCalledTimes(2);
+
+      // Second reconnect — 2s backoff
+      eventHandlers['error'](new Error('die again'));
+      await flushMicrotasks();
+
+      // Should have scheduled with 2000ms
+      expect(setTimeoutSpy).toHaveBeenLastCalledWith(
+        expect.any(Function),
+        2_000,
+      );
+
+      jest.advanceTimersByTime(2_000);
+      await flushMicrotasks();
+
+      expect(MockWSProvider).toHaveBeenCalledTimes(3);
+
+      setTimeoutSpy.mockRestore();
+      jest.useRealTimers();
+    });
+
+    it('resets backoff after a successful block event', async () => {
+      jest.useFakeTimers();
+      const setTimeoutSpy = jest.spyOn(global, 'setTimeout');
+
+      mockGetBlock.mockResolvedValue({ baseFeePerGas: 100n });
+      mockSend.mockResolvedValue('0x10');
+
+      service.onModuleInit();
+
+      // Trigger 3 reconnects to build up backoff (1s, 2s, 4s)
+      eventHandlers['error'](new Error('die'));
+      await flushMicrotasks();
+      jest.advanceTimersByTime(1_000);
+      await flushMicrotasks();
+
+      eventHandlers['error'](new Error('die'));
+      await flushMicrotasks();
+      jest.advanceTimersByTime(2_000);
+      await flushMicrotasks();
+
+      eventHandlers['error'](new Error('die'));
+      await flushMicrotasks();
+      jest.advanceTimersByTime(4_000);
+      await flushMicrotasks();
+
+      // Now a block arrives — proves connection is healthy, resets backoff
+      eventHandlers['block'](1234);
+      await flushMicrotasks();
+
+      // Next error should use 1s backoff (reset)
+      eventHandlers['error'](new Error('die'));
+      await flushMicrotasks();
+
+      expect(setTimeoutSpy).toHaveBeenLastCalledWith(
+        expect.any(Function),
+        1_000,
+      );
+
+      setTimeoutSpy.mockRestore();
+      jest.useRealTimers();
+    });
+
+    it('guards against concurrent reconnects', async () => {
+      jest.useFakeTimers();
+
+      service.onModuleInit();
+
+      // Fire multiple error events rapidly
+      eventHandlers['error'](new Error('error 1'));
+      eventHandlers['error'](new Error('error 2'));
+      eventHandlers['error'](new Error('error 3'));
+      await flushMicrotasks();
+
+      // Only one destroy should have happened
+      expect(mockDestroy).toHaveBeenCalledTimes(1);
+
+      jest.advanceTimersByTime(1_000);
+      await flushMicrotasks();
+
+      // Only one new provider created
+      expect(MockWSProvider).toHaveBeenCalledTimes(2);
+
+      jest.useRealTimers();
+    });
+
+    it('does not reconnect when shutting down', async () => {
+      jest.useFakeTimers();
+
+      service.onModuleInit();
+      await service.onModuleDestroy();
+
+      MockWSProvider.mockClear();
+
+      eventHandlers['error'](new Error('socket died'));
+      await flushMicrotasks();
+
+      jest.advanceTimersByTime(30_000);
+      await flushMicrotasks();
+
+      expect(MockWSProvider).not.toHaveBeenCalled();
+
+      jest.useRealTimers();
+    });
+
+    it('handles destroy() failure gracefully during reconnect', async () => {
+      jest.useFakeTimers();
+
+      mockDestroy.mockRejectedValueOnce(new Error('destroy failed'));
+
+      service.onModuleInit();
+      eventHandlers['error'](new Error('socket died'));
+      await flushMicrotasks();
+
+      // Should still schedule reconnect despite destroy failure
+      jest.advanceTimersByTime(1_000);
+      await flushMicrotasks();
+
+      expect(MockWSProvider).toHaveBeenCalledTimes(2);
+
+      jest.useRealTimers();
+    });
+
+    it('nullifies provider immediately on reconnect', () => {
+      service.onModuleInit();
+      expect(service.getProvider()).toBeDefined();
+
+      eventHandlers['error'](new Error('socket died'));
+
+      // Provider should be undefined immediately (before backoff timer)
+      expect(service.getProvider()).toBeUndefined();
+    });
   });
 
-  it('calls reconnect listener after websocket reconnects', () => {
-    jest.useFakeTimers();
+  describe('onReconnect listeners', () => {
+    it('calls reconnect listeners after successful reconnect', async () => {
+      jest.useFakeTimers();
 
-    service.onModuleInit();
+      service.onModuleInit();
 
-    const reconnectHandler = jest.fn();
-    service.onReconnect(reconnectHandler);
+      const listener = jest.fn();
+      service.onReconnect(listener);
 
-    // Trigger reconnect
-    wsHandlers.onclose?.();
-    jest.runAllTimers();
+      eventHandlers['error'](new Error('socket died'));
+      await flushMicrotasks();
 
-    expect(reconnectHandler).toHaveBeenCalledTimes(1);
+      jest.advanceTimersByTime(1_000);
+      await flushMicrotasks();
 
-    jest.useRealTimers();
+      expect(listener).toHaveBeenCalledTimes(1);
+
+      jest.useRealTimers();
+    });
+
+    it('does not call listeners on initial connection', () => {
+      const listener = jest.fn();
+      service.onReconnect(listener);
+
+      service.onModuleInit();
+
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('removes listener via returned unsubscribe function', async () => {
+      jest.useFakeTimers();
+
+      service.onModuleInit();
+
+      const listener = jest.fn();
+      const unsubscribe = service.onReconnect(listener);
+
+      unsubscribe();
+
+      eventHandlers['error'](new Error('socket died'));
+      await flushMicrotasks();
+      jest.advanceTimersByTime(1_000);
+      await flushMicrotasks();
+
+      expect(listener).not.toHaveBeenCalled();
+
+      jest.useRealTimers();
+    });
+
+    it('clears all listeners on module destroy', async () => {
+      jest.useFakeTimers();
+
+      service.onModuleInit();
+
+      const listener = jest.fn();
+      service.onReconnect(listener);
+
+      await service.onModuleDestroy();
+
+      // Re-init to trigger reconnect scenario
+      service.onModuleInit();
+      eventHandlers['error'](new Error('socket died'));
+      await flushMicrotasks();
+      jest.advanceTimersByTime(1_000);
+      await flushMicrotasks();
+
+      expect(listener).not.toHaveBeenCalled();
+
+      jest.useRealTimers();
+    });
+
+    it('continues reconnecting even if a listener throws', async () => {
+      jest.useFakeTimers();
+
+      service.onModuleInit();
+
+      const badListener = jest.fn(() => {
+        throw new Error('listener exploded');
+      });
+      const goodListener = jest.fn();
+
+      service.onReconnect(badListener);
+      service.onReconnect(goodListener);
+
+      eventHandlers['error'](new Error('socket died'));
+      await flushMicrotasks();
+      jest.advanceTimersByTime(1_000);
+      await flushMicrotasks();
+
+      expect(badListener).toHaveBeenCalled();
+      expect(goodListener).toHaveBeenCalled();
+
+      jest.useRealTimers();
+    });
   });
 
-  it('does not call reconnect listener on initial connection', () => {
-    const reconnectHandler = jest.fn();
-    service.onReconnect(reconnectHandler);
-
+  it('returns the provider via getProvider()', () => {
     service.onModuleInit();
 
-    expect(reconnectHandler).not.toHaveBeenCalled();
-  });
+    const provider = service.getProvider();
 
-  it('removes listener via returned unsubscribe function', () => {
-    jest.useFakeTimers();
-
-    service.onModuleInit();
-
-    const reconnectHandler = jest.fn();
-    const unsubscribe = service.onReconnect(reconnectHandler);
-
-    unsubscribe();
-
-    wsHandlers.onclose?.();
-    jest.runAllTimers();
-
-    expect(reconnectHandler).not.toHaveBeenCalled();
-
-    jest.useRealTimers();
-  });
-
-  it('clears all listeners on module destroy', () => {
-    jest.useFakeTimers();
-
-    service.onModuleInit();
-
-    const reconnectHandler = jest.fn();
-    service.onReconnect(reconnectHandler);
-
-    service.onModuleDestroy();
-
-    // Re-init to get a new provider that can trigger close
-    service.onModuleInit();
-    wsHandlers.onclose?.();
-    jest.runAllTimers();
-
-    expect(reconnectHandler).not.toHaveBeenCalled();
-
-    jest.useRealTimers();
+    expect(provider).toBeDefined();
+    expect(typeof provider!.on).toBe('function');
   });
 });

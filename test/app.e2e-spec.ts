@@ -4,7 +4,6 @@ import {
   FastifyAdapter,
   NestFastifyApplication,
 } from '@nestjs/platform-fastify';
-import { ethers } from 'ethers';
 import { AppModule } from './../src/app.module';
 import { EthService } from './../src/eth/eth.service';
 import { GasPriceService } from './../src/gas-price/gas-price.service';
@@ -16,16 +15,19 @@ const mockRemoveAllListeners = jest.fn();
 
 jest.mock('ethers', () => {
   const actual = jest.requireActual('ethers');
+  const MockContract = jest.fn().mockImplementation(() => ({
+    getReserves: mockGetReserves,
+    on: mockOn,
+    removeAllListeners: mockRemoveAllListeners,
+  }));
   // eslint-disable-next-line @typescript-eslint/no-unsafe-return
   return {
     ...actual,
+    Contract: MockContract,
+    // Service uses `ethers.Contract`, so we must also override it on the namespace
     ethers: {
       ...actual.ethers,
-      Contract: jest.fn().mockImplementation(() => ({
-        getReserves: mockGetReserves,
-        on: mockOn,
-        removeAllListeners: mockRemoveAllListeners,
-      })),
+      Contract: MockContract,
     },
   };
 });
@@ -50,6 +52,7 @@ describe('API (e2e)', () => {
 
     app = moduleFixture.createNestApplication<NestFastifyApplication>(
       new FastifyAdapter(),
+      { logger: false },
     );
     await app.init();
     await app.getHttpAdapter().getInstance().ready();
@@ -158,9 +161,9 @@ describe('API (e2e)', () => {
     describe('successful swap', () => {
       it('should return amountOut for WETH -> USDC', async () => {
         mockGetReserves.mockResolvedValue([
-          ethers.BigNumber.from('100000000000000000000'), // 100 ETH
-          ethers.BigNumber.from('200000000000'), // 200k USDC
-          0,
+          BigInt('100000000000000000000'), // 100 ETH
+          BigInt('200000000000'), // 200k USDC
+          0n,
         ]);
 
         const res = await app.inject({
@@ -188,9 +191,9 @@ describe('API (e2e)', () => {
 
       it('should handle uint256-range amounts', async () => {
         mockGetReserves.mockResolvedValue([
-          ethers.BigNumber.from('50000000000000000000000'),
-          ethers.BigNumber.from('100000000000000000000000'),
-          0,
+          BigInt('50000000000000000000000'),
+          BigInt('100000000000000000000000'),
+          0n,
         ]);
 
         const res = await app.inject({

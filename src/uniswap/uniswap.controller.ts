@@ -25,7 +25,7 @@ export class UniswapController {
     @Param('toTokenAddress') toTokenAddress: string,
     @Param('amountIn') amountIn: string, // Keep as string to preserve uint256 precision
   ): Promise<SwapReturn> {
-    if (!ethers.utils.isAddress(fromTokenAddress)) {
+    if (!ethers.isAddress(fromTokenAddress)) {
       throw new HttpException(
         {
           statusCode: HttpStatus.BAD_REQUEST,
@@ -35,7 +35,7 @@ export class UniswapController {
       );
     }
 
-    if (!ethers.utils.isAddress(toTokenAddress)) {
+    if (!ethers.isAddress(toTokenAddress)) {
       throw new HttpException(
         {
           statusCode: HttpStatus.BAD_REQUEST,

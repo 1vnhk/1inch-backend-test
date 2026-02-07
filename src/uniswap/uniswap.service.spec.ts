@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UniswapService } from './uniswap.service';
 import { EthService } from '../eth/eth.service';
-import { ethers } from 'ethers';
+import { WebSocketProvider } from 'ethers';
 
 // Stable mock for Contract — must be declared before any usage
 const mockGetReserves = jest.fn();
@@ -11,18 +11,21 @@ const mockRemoveAllListeners = jest.fn();
 jest.mock('ethers', () => {
   // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
   const actual = jest.requireActual('ethers');
+  const MockContract = jest.fn().mockImplementation(() => ({
+    getReserves: mockGetReserves,
+    on: mockOn,
+    removeAllListeners: mockRemoveAllListeners,
+  }));
   // eslint-disable-next-line @typescript-eslint/no-unsafe-return
   return {
     ...actual,
+    Contract: MockContract,
+    // Service uses `ethers.Contract`, so we must also override it on the namespace
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     ethers: {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
       ...actual.ethers,
-      Contract: jest.fn().mockImplementation(() => ({
-        getReserves: mockGetReserves,
-        on: mockOn,
-        removeAllListeners: mockRemoveAllListeners,
-      })),
+      Contract: MockContract,
     },
   };
 });
@@ -30,7 +33,7 @@ jest.mock('ethers', () => {
 describe('UniswapService', () => {
   let service: UniswapService;
 
-  const mockProvider = {} as ethers.providers.WebSocketProvider;
+  const mockProvider = {} as WebSocketProvider;
   let triggerReconnect: () => void;
 
   const mockEthService = {
@@ -192,9 +195,9 @@ describe('UniswapService', () => {
 
     const mockReserves = () => {
       mockGetReserves.mockResolvedValue([
-        ethers.BigNumber.from('100000000000000000000'), // 100 ETH
-        ethers.BigNumber.from('200000000000'), // 200,000 USDC
-        0,
+        BigInt('100000000000000000000'), // 100 ETH
+        BigInt('200000000000'), // 200,000 USDC
+        0n,
       ]);
     };
 
@@ -244,9 +247,9 @@ describe('UniswapService', () => {
 
       // Resolve the single RPC call
       resolveGetReserves([
-        ethers.BigNumber.from('100000000000000000000'),
-        ethers.BigNumber.from('200000000000'),
-        0,
+        BigInt('100000000000000000000'),
+        BigInt('200000000000'),
+        0n,
       ]);
 
       const [result1, result2] = await Promise.all([promise1, promise2]);
@@ -273,9 +276,9 @@ describe('UniswapService', () => {
       const p3 = service.getReturnAmount(WETH, USDC, '1000000000000000000');
 
       resolveGetReserves([
-        ethers.BigNumber.from('100000000000000000000'),
-        ethers.BigNumber.from('200000000000'),
-        0,
+        BigInt('100000000000000000000'),
+        BigInt('200000000000'),
+        0n,
       ]);
 
       await Promise.all([p1, p2, p3]);
@@ -378,9 +381,9 @@ describe('UniswapService', () => {
 
         // Resolve the stale fetch
         resolveGetReserves([
-          ethers.BigNumber.from('100000000000000000000'),
-          ethers.BigNumber.from('200000000000'),
-          0,
+          BigInt('100000000000000000000'),
+          BigInt('200000000000'),
+          0n,
         ]);
 
         await fetchPromise;
@@ -390,9 +393,9 @@ describe('UniswapService', () => {
 
         // Next request should re-fetch on the new provider
         mockGetReserves.mockResolvedValue([
-          ethers.BigNumber.from('100000000000000000000'),
-          ethers.BigNumber.from('200000000000'),
-          0,
+          BigInt('100000000000000000000'),
+          BigInt('200000000000'),
+          0n,
         ]);
 
         await service.getReturnAmount(WETH, USDC, '1000000000000000000');

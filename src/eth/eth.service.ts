@@ -5,19 +5,21 @@ import {
   OnModuleDestroy,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ethers } from 'ethers';
+import { WebSocketProvider } from 'ethers';
 import { GasPriceService } from '../gas-price/gas-price.service';
+
+const MAX_BACKOFF_MS = 30_000;
+const BASE_BACKOFF_MS = 1_000;
 
 @Injectable()
 export class EthService implements OnModuleInit, OnModuleDestroy {
-  private wsProvider!: ethers.providers.WebSocketProvider;
+  private provider: WebSocketProvider | undefined;
   private readonly logger = new Logger(EthService.name);
-
   private readonly reconnectListeners = new Set<() => void>();
 
-  private reconnectTimer?: NodeJS.Timeout;
-  private reconnectAttempts = 0;
   private isShuttingDown = false;
+  private isReconnecting = false;
+  private reconnectAttempts = 0;
 
   constructor(
     private readonly configService: ConfigService,
@@ -25,17 +27,20 @@ export class EthService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
-    this.createWebSocketProvider();
+    this.connect();
   }
 
-  onModuleDestroy() {
+  async onModuleDestroy() {
     this.isShuttingDown = true;
     this.reconnectListeners.clear();
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = undefined;
+
+    try {
+      await this.provider?.destroy();
+    } catch (error) {
+      this.logger.warn('Error destroying provider on shutdown', error);
     }
-    void this.wsProvider?.destroy();
+
+    this.provider = undefined;
   }
 
   /**
@@ -47,99 +52,109 @@ export class EthService implements OnModuleInit, OnModuleDestroy {
     return () => this.reconnectListeners.delete(listener);
   }
 
-  public subscribeToNewHeads(): void {
-    this.wsProvider.on('block', (blockNumber: number) => {
-      void this.fetchAndUpdateGasPrice(blockNumber).catch((error) => {
-        this.logger.error(
-          `Failed to update gas price for block ${blockNumber}`,
-          error,
-        );
-      });
-    });
-  }
-
-  isWebSocketConnected(): boolean {
-    const rawSocket = (this.wsProvider as unknown as { _websocket?: WebSocket })
-      ._websocket;
-    return rawSocket?.readyState === 1;
-  }
-
-  getReconnectAttempts(): number {
-    return this.reconnectAttempts;
-  }
-
   /**
    * Get the WebSocket provider for creating contract instances.
    * Returns undefined before initialization or during reconnect.
    */
-  getProvider(): ethers.providers.WebSocketProvider | undefined {
-    return this.wsProvider;
+  getProvider(): WebSocketProvider | undefined {
+    return this.provider;
   }
 
-  private async fetchAndUpdateGasPrice(
-    blockTag: number | 'latest',
-    provider: ethers.providers.WebSocketProvider = this.wsProvider,
-  ): Promise<void> {
-    const [block, priorityFeeHex] = await Promise.all([
-      provider.getBlock(blockTag),
+  private connect() {
+    const wsUrl = this.configService.getOrThrow<string>('ETH_NODE_WS');
+
+    this.provider = new WebSocketProvider(wsUrl);
+
+    this.setupEventListeners();
+    this.logger.log('WebSocket Provider connected');
+  }
+
+  private setupEventListeners() {
+    // Ethers v6 .on() returns Promise<Provider> — catch setup failures
+    this.provider!.on('block', (blockNumber: number) => {
+      // Successful block = connection is healthy — reset backoff
+      this.reconnectAttempts = 0;
+
+      this.fetchAndUpdateGasPrice(blockNumber).catch((error) => {
+        this.logger.error(
+          `Failed to update gas for block ${blockNumber}`,
+          error,
+        );
+      });
+    }).catch((error) => {
+      this.logger.error('Failed to subscribe to block events', error);
+    });
+
+    this.provider!.on('error', (error) => {
+      this.logger.error('WebSocket error:', error);
+      this.handleReconnect();
+    }).catch((error) => {
+      this.logger.error('Failed to subscribe to error events', error);
+    });
+  }
+
+  private handleReconnect() {
+    if (this.isShuttingDown || this.isReconnecting) return;
+    this.isReconnecting = true;
+
+    const backoffMs = Math.min(
+      MAX_BACKOFF_MS,
+      BASE_BACKOFF_MS * 2 ** this.reconnectAttempts,
+    );
+    this.reconnectAttempts += 1;
+
+    this.logger.warn(
+      `Reconnecting in ${backoffMs}ms (attempt ${this.reconnectAttempts})...`,
+    );
+
+    // Destroy the dead provider, then schedule reconnect
+    const oldProvider = this.provider;
+    this.provider = undefined;
+
+    const destroyAndReconnect = async () => {
+      try {
+        await oldProvider?.destroy();
+      } catch (error) {
+        this.logger.warn('Error destroying old provider', error);
+      }
+
+      setTimeout(() => {
+        this.isReconnecting = false;
+
+        if (this.isShuttingDown) return;
+
+        this.connect();
+
+        for (const listener of this.reconnectListeners) {
+          try {
+            listener();
+          } catch (error) {
+            this.logger.error('Reconnect listener threw', error);
+          }
+        }
+      }, backoffMs);
+    };
+
+    destroyAndReconnect().catch((error) => {
+      this.isReconnecting = false;
+      this.logger.error('Reconnect failed unexpectedly', error);
+    });
+  }
+
+  private async fetchAndUpdateGasPrice(blockNumber: number): Promise<void> {
+    const provider = this.provider;
+    if (!provider) return;
+
+    const [block, priorityFee] = await Promise.all([
+      provider.getBlock(blockNumber),
       provider.send('eth_maxPriorityFeePerGas', []) as Promise<string>,
     ]);
 
-    if (!block.baseFeePerGas) {
-      this.logger.warn(`Block ${blockTag} has no baseFeePerGas, skipping`);
-      return;
+    if (block && block.baseFeePerGas) {
+      this.gasPriceService.updateGasPrice(
+        block.baseFeePerGas,
+        BigInt(priorityFee),
+      );
     }
-
-    this.gasPriceService.updateGasPrice(
-      block.baseFeePerGas.toBigInt(),
-      ethers.BigNumber.from(priorityFeeHex).toBigInt(),
-    );
-  }
-
-  private createWebSocketProvider(): void {
-    const wsUrl = this.configService.getOrThrow<string>('ETH_NODE_WS');
-    this.wsProvider = new ethers.providers.WebSocketProvider(wsUrl);
-    this.reconnectAttempts = 0;
-
-    this.attachWebSocketHandlers();
-    this.subscribeToNewHeads();
-  }
-
-  private attachWebSocketHandlers(): void {
-    const rawSocket = (this.wsProvider as unknown as { _websocket?: WebSocket })
-      ._websocket;
-    if (!rawSocket) return;
-
-    rawSocket.onclose = () => {
-      this.logger.warn('WebSocket closed. Reconnecting...');
-      this.scheduleReconnect();
-    };
-    rawSocket.onerror = () => {
-      this.logger.warn('WebSocket error. Reconnecting...');
-      this.scheduleReconnect();
-    };
-  }
-
-  private scheduleReconnect(): void {
-    if (this.isShuttingDown || this.reconnectTimer) return;
-
-    const backoffMs = Math.min(30_000, 1_000 * 2 ** this.reconnectAttempts);
-    this.reconnectAttempts += 1;
-
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = undefined;
-      this.logger.log('Attempting WebSocket reconnect...');
-
-      try {
-        void this.wsProvider?.destroy();
-      } catch (error) {
-        this.logger.warn('Failed to destroy WebSocket provider', error);
-      }
-
-      this.createWebSocketProvider();
-      for (const listener of this.reconnectListeners) {
-        listener();
-      }
-    }, backoffMs);
   }
 }

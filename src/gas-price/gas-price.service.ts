@@ -90,12 +90,14 @@ export class GasPriceService {
     priorityFeeBase: bigint,
     options: { pMult: bigint; pDiv: bigint; baseBuffer: bigint },
   ): GasPriceTier {
-    // 1. Calculate Priority Fee (Tip)
+    // Ensures the validator is incentivized to pick our tx over others
     const priorityFee = (priorityFeeBase * options.pMult) / options.pDiv;
 
-    // 2. Calculate Max Fee (BaseFee * Buffer + Tip)
-    // We buffer the baseFee to ensure tx works for the next few blocks even if price spikes
+    // EIP-1559 rule: BaseFee increases by max 12.5% per block.
+    // 125n buffer (1.25x) covers two blocks of 100% utilization.
     const bufferedBaseFee = (baseFee * options.baseBuffer) / 100n;
+
+    // Max Fee = Buffered Base Fee + Tip (priority fee)
     const maxFeePerGas = bufferedBaseFee + priorityFee;
 
     return {
