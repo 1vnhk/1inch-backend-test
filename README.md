@@ -106,7 +106,7 @@ Returns current Ethereum gas prices with EIP-1559 fee data.
 
 Current latency is 50-100ms when deployed to Render Free Tier (Germany) (https://oneinch-backend-test.onrender.com/gasPrice/1):
 [Screenshot](https://prnt.sc/qLzoTbyjZxR2)
-It seems that the response time is dominated by the infrastructure. In a production environment, this can be solved with better hardware infrastructure and better routing. Using TLS 1.3 also should reduce the handshake time. 
+It seems that the response time is dominated by the infrastructure. In a production environment, this can be solved with better hardware infrastructure and better routing.
 
 ---
 
