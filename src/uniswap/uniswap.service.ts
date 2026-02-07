@@ -24,8 +24,8 @@ export class UniswapService implements OnModuleDestroy {
   // pairAddress -> reserves
   private readonly reservesCache = new Map<string, ReservesCache>();
 
-  // Track subscribed pairs to avoid duplicate subscriptions
-  private readonly subscribedPairs = new Set<string>();
+  // pairAddress -> in-flight fetch promise (coalesces concurrent requests)
+  private readonly pendingFetches = new Map<string, Promise<ReservesCache>>();
 
   // Track contract instances for cleanup
   private readonly pairContracts = new Map<string, ethers.Contract>();
@@ -38,7 +38,7 @@ export class UniswapService implements OnModuleDestroy {
     }
 
     this.pairContracts.clear();
-    this.subscribedPairs.clear();
+    this.pendingFetches.clear();
     this.reservesCache.clear();
   }
 
@@ -79,6 +79,7 @@ export class UniswapService implements OnModuleDestroy {
 
   /**
    * Get reserves - from cache if available, otherwise fetch and subscribe.
+   * Concurrent requests for the same pair coalesce into a single RPC call.
    */
   private async getReserves(
     pairAddress: string,
@@ -88,15 +89,26 @@ export class UniswapService implements OnModuleDestroy {
     const cached = this.reservesCache.get(pairAddress);
 
     if (cached) {
-      // Cache hit - return immediately (<1ms)
       this.logger.debug(`Cache HIT for pair ${pairAddress}`);
       return this.mapReserves(cached, fromToken, toToken);
     }
 
-    // Cache miss - fetch reserves and subscribe to Sync events
-    this.logger.debug(`Cache MISS for pair ${pairAddress}, fetching...`);
-    const reserves = await this.fetchAndSubscribe(pairAddress);
+    // Coalesce concurrent fetches for the same pair into one RPC call
+    let fetchPromise = this.pendingFetches.get(pairAddress);
 
+    if (!fetchPromise) {
+      this.logger.debug(`Cache MISS for pair ${pairAddress}, fetching...`);
+      fetchPromise = this.fetchAndSubscribe(pairAddress).finally(() => {
+        this.pendingFetches.delete(pairAddress);
+      });
+      this.pendingFetches.set(pairAddress, fetchPromise);
+    } else {
+      this.logger.debug(
+        `Cache MISS for pair ${pairAddress}, joining pending fetch`,
+      );
+    }
+
+    const reserves = await fetchPromise;
     return this.mapReserves(reserves, fromToken, toToken);
   }
 
@@ -130,7 +142,7 @@ export class UniswapService implements OnModuleDestroy {
     this.reservesCache.set(pairAddress, reserves);
 
     // Subscribe to Sync events (if not already subscribed)
-    if (!this.subscribedPairs.has(pairAddress)) {
+    if (!this.pairContracts.has(pairAddress)) {
       this.subscribeToSync(pairAddress, pairContract);
     }
 
@@ -145,7 +157,6 @@ export class UniswapService implements OnModuleDestroy {
     pairAddress: string,
     pairContract: ethers.Contract,
   ): void {
-    this.subscribedPairs.add(pairAddress);
     this.pairContracts.set(pairAddress, pairContract);
 
     pairContract.on(
