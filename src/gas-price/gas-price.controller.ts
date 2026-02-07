@@ -9,7 +9,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { GasPriceService } from './gas-price.service';
-import { GasPriceResponseDto } from './dto';
+import type { GasPriceResponse } from './types';
 
 const SUPPORTED_CHAINS: Set<number> = new Set([1]); // Only Ethereum mainnet (chainId: 1) for now
 
@@ -30,7 +30,7 @@ export class GasPriceController {
       }),
     )
     chainId: number,
-  ): GasPriceResponseDto {
+  ): GasPriceResponse {
     if (!SUPPORTED_CHAINS.has(chainId)) {
       throw new HttpException(
         {

@@ -7,7 +7,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { UniswapService } from './uniswap.service';
-import { SwapReturnDto } from './dto';
+import type { SwapReturn } from './types';
 import { ethers } from 'ethers';
 
 // Regex for positive integer (no leading zeros except "0" itself)
@@ -24,7 +24,7 @@ export class UniswapController {
     @Param('fromTokenAddress') fromTokenAddress: string,
     @Param('toTokenAddress') toTokenAddress: string,
     @Param('amountIn') amountIn: string, // Keep as string to preserve uint256 precision
-  ): Promise<SwapReturnDto> {
+  ): Promise<SwapReturn> {
     if (!ethers.utils.isAddress(fromTokenAddress)) {
       throw new HttpException(
         {

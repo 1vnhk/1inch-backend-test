@@ -3,10 +3,10 @@ import {
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { GasPriceResponseDto, GasPriceTierDto } from './dto';
+import type { GasPriceResponse, GasPriceTier } from './types';
 
 interface GasPriceCache {
-  data: GasPriceResponseDto;
+  data: GasPriceResponse;
   updatedAt: number;
 }
 
@@ -28,7 +28,7 @@ export class GasPriceService {
   private readonly logger = new Logger(GasPriceService.name);
   private cache: GasPriceCache | null = null;
 
-  getGasPrice(): GasPriceResponseDto {
+  getGasPrice(): GasPriceResponse {
     if (!this.cache) {
       throw new ServiceUnavailableException(
         'Gas price data not yet available. Waiting for first block.',
@@ -82,7 +82,7 @@ export class GasPriceService {
     baseFee: bigint,
     priorityFeeBase: bigint,
     options: { pMult: bigint; pDiv: bigint; baseBuffer: bigint },
-  ): GasPriceTierDto {
+  ): GasPriceTier {
     // 1. Calculate Priority Fee (Tip)
     const priorityFee = (priorityFeeBase * options.pMult) / options.pDiv;
 
