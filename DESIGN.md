@@ -3,8 +3,7 @@
 ## Overview
 
 This document outlines the architecture and design decisions for a Nest.js application providing two REST endpoints:
-1. **`GET /gas-price/:chainId`** - Returns current gas price with <50ms response time
-<!-- TODO: -->
+1. **`GET /gasPrice/:chainId`** - Returns current gas price with <50ms response time
 2. **`GET /return/:fromTokenAddress/:toTokenAddress/:amountIn`** - Returns estimated UniswapV2 swap output amount
 
 ---
