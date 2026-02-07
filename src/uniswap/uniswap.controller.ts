@@ -52,7 +52,6 @@ export class UniswapController {
       );
     }
 
-    // Validate amountIn is a positive integer string (preserves uint256 precision)
     if (!POSITIVE_INT_REGEX.test(amountIn)) {
       throw new HttpException(
         {
@@ -67,7 +66,7 @@ export class UniswapController {
       const amountOut = await this.uniswapService.getReturnAmount(
         fromTokenAddress,
         toTokenAddress,
-        amountIn, // Pass as string to preserve precision
+        amountIn,
       );
 
       return { amountOut: amountOut.toString() };

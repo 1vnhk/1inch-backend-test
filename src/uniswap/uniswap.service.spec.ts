@@ -6,9 +6,7 @@ describe('UniswapService', () => {
   let service: UniswapService;
 
   const mockEthService = {
-    getProvider: jest.fn().mockReturnValue({
-      // Mock provider - actual calls will be mocked per test
-    }),
+    getProvider: jest.fn().mockReturnValue({}),
   };
 
   beforeEach(async () => {
@@ -74,7 +72,6 @@ describe('UniswapService', () => {
   });
 
   describe('getAmountOut calculation', () => {
-    // Test the formula directly by reimplementing it
     const getAmountOut = (
       amountIn: bigint,
       reserveIn: bigint,
