@@ -1,16 +1,23 @@
 import { Logger, ServiceUnavailableException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { GasPriceService } from './gas-price.service';
 
 const toBigInt = (value: string) => BigInt(value);
 
+const MOCK_STALENESS_MS = 20_000;
+
 describe('GasPriceService', () => {
   let service: GasPriceService;
+
+  const mockConfigService = {
+    getOrThrow: jest.fn().mockReturnValue(MOCK_STALENESS_MS),
+  } as unknown as ConfigService;
 
   beforeEach(() => {
     jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
     jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
-    service = new GasPriceService();
+    service = new GasPriceService(mockConfigService);
   });
 
   it('throws when gas price cache is empty', () => {
@@ -56,10 +63,12 @@ describe('GasPriceService', () => {
     nowSpy.mockReturnValue(1_000);
     service.updateGasPrice(100n, 100n);
 
-    nowSpy.mockReturnValue(1_000 + 10_000);
+    // Just under threshold — not stale
+    nowSpy.mockReturnValue(1_000 + MOCK_STALENESS_MS - 1);
     expect(service.isCacheStale()).toBe(false);
 
-    nowSpy.mockReturnValue(1_000 + 31_000);
+    // Just over threshold — stale
+    nowSpy.mockReturnValue(1_000 + MOCK_STALENESS_MS + 1);
     expect(service.isCacheStale()).toBe(true);
 
     nowSpy.mockRestore();

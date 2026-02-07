@@ -3,6 +3,7 @@ import {
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { GasPriceResponse, GasPriceTier } from './types';
 
 interface GasPriceCache {
@@ -10,7 +11,6 @@ interface GasPriceCache {
   updatedAt: number;
 }
 
-const STALENESS_THRESHOLD_MS = 30_000; // 30 seconds
 const MIN_PRIORITY_FEE = 1_500_000_000n; // 1.5 Gwei
 
 // NOTE: I am not sure how to properly calculate the tiers. I've come up with my own ratios.
@@ -26,7 +26,14 @@ const TIERS = {
 @Injectable()
 export class GasPriceService {
   private readonly logger = new Logger(GasPriceService.name);
+  private readonly stalenessMs: number;
   private cache: GasPriceCache | null = null;
+
+  constructor(private readonly configService: ConfigService) {
+    this.stalenessMs = this.configService.getOrThrow<number>(
+      'GAS_PRICE_STALENESS_MS',
+    );
+  }
 
   getGasPrice(): GasPriceResponse {
     if (!this.cache) {
@@ -71,7 +78,7 @@ export class GasPriceService {
 
   isCacheStale(): boolean {
     if (!this.cache) return true;
-    return Date.now() - this.cache.updatedAt > STALENESS_THRESHOLD_MS;
+    return Date.now() - this.cache.updatedAt > this.stalenessMs;
   }
 
   getLastUpdateTimestamp(): number | undefined {

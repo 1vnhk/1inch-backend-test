@@ -16,7 +16,8 @@ import { UniswapModule } from './uniswap';
       validationSchema: Joi.object({
         PORT: Joi.number().default(3000),
         ETH_NODE_WS: Joi.string().required(),
-        GRACE_PERIOD_MS: Joi.number().default(20_000),
+        GRACE_PERIOD_MS: Joi.number().default(30_000),
+        GAS_PRICE_STALENESS_MS: Joi.number().default(20_000),
       }),
     }),
     HealthModule,
