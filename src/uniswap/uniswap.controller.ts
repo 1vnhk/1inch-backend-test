@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Logger,
   Param,
   HttpException,
   HttpStatus,
@@ -14,6 +15,8 @@ const POSITIVE_INT_REGEX = /^[1-9]\d*$/;
 
 @Controller('return')
 export class UniswapController {
+  private readonly logger = new Logger(UniswapController.name);
+
   constructor(private readonly uniswapService: UniswapService) {}
 
   @Get(':fromTokenAddress/:toTokenAddress/:amountIn')
@@ -120,7 +123,7 @@ export class UniswapController {
       }
 
       // Log unexpected errors for debugging
-      console.error('Unexpected error in getReturnAmount:', error);
+      this.logger.error('Unexpected error in getReturnAmount', error);
 
       throw new HttpException(
         {

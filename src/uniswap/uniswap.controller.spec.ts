@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { HttpException, HttpStatus } from '@nestjs/common';
+import { HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { UniswapController } from './uniswap.controller';
 import { UniswapService } from './uniswap.service';
 
@@ -222,9 +222,9 @@ describe('UniswapController', () => {
       });
 
       it('should return 500 for unknown errors', async () => {
-        // Suppress expected console.error from error handling path
-        const consoleSpy = jest
-          .spyOn(console, 'error')
+        // Suppress expected logger.error from error handling path
+        const loggerSpy = jest
+          .spyOn(Logger.prototype, 'error')
           .mockImplementation(() => {});
 
         uniswapService.getReturnAmount.mockRejectedValue(
@@ -239,7 +239,7 @@ describe('UniswapController', () => {
           );
         }
 
-        consoleSpy.mockRestore();
+        loggerSpy.mockRestore();
       });
     });
   });
