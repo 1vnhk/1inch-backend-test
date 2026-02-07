@@ -6,6 +6,8 @@ import {
 } from '@nestjs/terminus';
 import { EthWsHealthIndicator } from './eth-ws.health';
 
+const MAX_HEAP_MEMORY_USAGE_MB = 200 * 1024 * 1024; // 200 MB
+
 @Controller('health')
 export class HealthController {
   constructor(
@@ -18,7 +20,7 @@ export class HealthController {
   @HealthCheck()
   check() {
     return this.health.check([
-      () => this.memory.checkHeap('memory_heap', 200 * 1024 * 1024), // 20 MB heap memory usage
+      () => this.memory.checkHeap('memory_heap', MAX_HEAP_MEMORY_USAGE_MB),
       () => this.ethWs.isHealthy(),
     ]);
   }
