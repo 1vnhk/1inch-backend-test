@@ -30,8 +30,7 @@
     "ethers": "^5.8.0",
     "fastify": "^5.7.4",
     "joi": "^18.0.2",
-    "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "reflect-metadata": "^0.2.2"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
@@ -49,7 +48,6 @@
     "lint-staged": "^15.4.3",
     "prettier": "^3.4.2",
     "ts-jest": "^29.2.5",
-    "ts-loader": "^9.5.2",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.7.3",
