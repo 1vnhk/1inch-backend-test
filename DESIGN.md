@@ -6,6 +6,14 @@ This document outlines the architecture and design decisions for a Nest.js appli
 1. **`GET /gasPrice/:chainId`** - Returns current gas price with <50ms response time
 2. **`GET /return/:fromTokenAddress/:toTokenAddress/:amountIn`** - Returns estimated UniswapV2 swap output amount
 
+**Further Optimizations and Improvements**
+
+| Strategy | Implementation | Benefit |
+|----------|----------------|---------|
+| **Add versioning to APIs** | As described | Easier evolution of the API |
+| **Define and add metrics** | As described | To measure KPIs of the app |
+| **Add observability** | As described | Grafana integration etc |
+
 ---
 
 ## Design Approach
